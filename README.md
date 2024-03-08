@@ -1,2 +1,2 @@
-# lobj_replacement
-Large Object Replacement for logical replication
+# lolor
+Large Object LOgical Replication
