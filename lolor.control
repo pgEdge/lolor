@@ -1,0 +1,6 @@
+# lolor extension
+comment = 'Large Objects support for logical replication'
+default_version = '1.0'
+module_pathname = '$libdir/lolor'
+relocatable = true
+trusted = true

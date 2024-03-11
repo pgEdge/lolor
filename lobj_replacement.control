@@ -1,6 +1,0 @@
-# lobj_replacement extension
-comment = 'Large Object Replacement for logical replication'
-default_version = '1.0'
-module_pathname = '$libdir/lobj_replacement'
-relocatable = true
-trusted = true

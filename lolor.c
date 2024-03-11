@@ -1,7 +1,7 @@
 /*
  *	PostgreSQL definitions for Large Objects for logical replication.
  *
- *	contrib/lobj_replacement/lobj_replacement.c
+ *	contrib/lolor/lolor.c
  *
  */
 
@@ -21,15 +21,15 @@ PG_MODULE_MAGIC;
 /*
  * Function forward declarations
  */
-PG_FUNCTION_INFO_V1(lobj_replacement_lo_open);
-PG_FUNCTION_INFO_V1(lobj_replacement_lo_close);
-PG_FUNCTION_INFO_V1(lobj_replacement_on_drop_extension);
+PG_FUNCTION_INFO_V1(lolor_lo_open);
+PG_FUNCTION_INFO_V1(lolor_lo_close);
+PG_FUNCTION_INFO_V1(lolor_on_drop_extension);
 
 /*
- * lobj_replacement_lo_open - large object open
+ * lolor_lo_open - large object open
  */
 Datum
-lobj_replacement_lo_open(PG_FUNCTION_ARGS)
+lolor_lo_open(PG_FUNCTION_ARGS)
 {
 	Datum	lobjId = PG_GETARG_DATUM(0);
 	Datum	mode = PG_GETARG_DATUM(1);
@@ -40,10 +40,10 @@ lobj_replacement_lo_open(PG_FUNCTION_ARGS)
 }
 
 /*
- * lobj_replacement_lo_close - large object close
+ * lolor_lo_close - large object close
  */
 Datum
-lobj_replacement_lo_close(PG_FUNCTION_ARGS)
+lolor_lo_close(PG_FUNCTION_ARGS)
 {
 	Datum	lobjFd = PG_GETARG_DATUM(0);
 
@@ -53,7 +53,7 @@ lobj_replacement_lo_close(PG_FUNCTION_ARGS)
 }
 
 /*
- * lobj_replacement_on_drop_extension
+ * lolor_on_drop_extension
  *
  * 	In order to be a drop-in replacement for the PostgreSQL built
  * 	in large object access functions, we must replace them with
@@ -73,12 +73,12 @@ lobj_replacement_lo_close(PG_FUNCTION_ARGS)
  *	renaming (which makes no sense).
  */
 Datum
-lobj_replacement_on_drop_extension(PG_FUNCTION_ARGS)
+lolor_on_drop_extension(PG_FUNCTION_ARGS)
 {
 	EventTriggerData   *trigdata;
 	DropStmt		   *dropstmt;
 	ListCell		   *lc;
-	bool				has_lobj_replacement = false;
+	bool				has_lolor_objs = false;
 
 	/* Make sure we are called as an event trigger */
 	if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
@@ -93,7 +93,7 @@ lobj_replacement_on_drop_extension(PG_FUNCTION_ARGS)
 	}
 
 	/*
-	 * Check that this is DROP EXTENSION lobj_replacement
+	 * Check that this is DROP EXTENSION lolor
 	 */
 	if (!IsA(trigdata->parsetree, DropStmt))
 	{
@@ -110,17 +110,17 @@ lobj_replacement_on_drop_extension(PG_FUNCTION_ARGS)
 	{
 		String *objname = (String *)lfirst(lc);
 		
-		if (strcmp(strVal(objname), "lobj_replacement") == 0)
+		if (strcmp(strVal(objname), "lolor") == 0)
 		{
-			has_lobj_replacement = true;
+			has_lolor_objs = true;
 			break;
 		}
 	}
-	if (!has_lobj_replacement)
+	if (!has_lolor_objs)
 		PG_RETURN_NULL();
 
 	/*
-	 * OK, this is DROP EXTENSION lobj_replacement. Rename our own
+	 * OK, this is DROP EXTENSION lolor. Rename our own
 	 * functions out of the way (they will later be dropped by the
 	 * DROP EXTENSION itself, and rename the original PostgreSQL
 	 * functions back to what they were.
