@@ -7,49 +7,95 @@
 
 #include "postgres.h"
 
+#include "miscadmin.h"
 #include "fmgr.h"
+#include "catalog/namespace.h"
 #include "commands/event_trigger.h"
 #include "executor/spi.h"
 #include "nodes/parsenodes.h"
 #include "nodes/print.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
+#include "utils/lsyscache.h"
+
+#include "lolor.h"
 
 PG_MODULE_MAGIC;
 
+/* keep Oids of the large object catalog. */
+Oid	LOLOR_LargeObjectRelationId = InvalidOid;
+Oid	LOLOR_LargeObjectLOidPNIndexId = InvalidOid;
+Oid	LOLOR_LargeObjectMetadataRelationId = InvalidOid;
+Oid	LOLOR_LargeObjectMetadataOidIndexId = InvalidOid;
 
-/*
- * Function forward declarations
- */
-PG_FUNCTION_INFO_V1(lolor_lo_open);
-PG_FUNCTION_INFO_V1(lolor_lo_close);
 PG_FUNCTION_INFO_V1(lolor_on_drop_extension);
 
-/*
- * lolor_lo_open - large object open
- */
-Datum
-lolor_lo_open(PG_FUNCTION_ARGS)
+Oid
+get_lobj_table_oid(const char *table)
 {
-	Datum	lobjId = PG_GETARG_DATUM(0);
-	Datum	mode = PG_GETARG_DATUM(1);
+	Oid			reloid;
+	Oid			nspoid;
 
-	elog(LOG, "PGLOTEST - lo_open(%u,0x%x)", 
-		 DatumGetObjectId(lobjId), DatumGetInt32(mode));
-	return DirectFunctionCall2(be_lo_open, lobjId, mode);
+	nspoid = get_namespace_oid(EXTENSION_NAME, false);
+	reloid = get_relname_relid(table, nspoid);
+	if (reloid == InvalidOid)
+		elog(ERROR, "cache lookup failed for relation %s.%s",
+			 EXTENSION_NAME, table);
+
+	return reloid;
+}
+
+static void
+lolor_xact_callback(XactEvent event, void *arg)
+{
+	switch (event)
+	{
+		case XACT_EVENT_COMMIT:
+		case XACT_EVENT_PARALLEL_COMMIT:
+		case XACT_EVENT_PREPARE:
+			AtEOXact_LOLOR_LargeObject(true);
+			break;
+		case XACT_EVENT_ABORT:
+		case XACT_EVENT_PARALLEL_ABORT:
+			AtEOXact_LOLOR_LargeObject(false);
+			break;
+		default:
+			break;
+	}
+}
+
+static void
+lolor_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
+						 SubTransactionId parentSubid, void *arg)
+{
+	switch (event)
+	{
+		case SUBXACT_EVENT_COMMIT_SUB:
+			AtEOSubXact_LOLOR_LargeObject(true, mySubid, parentSubid);
+			break;
+		case SUBXACT_EVENT_ABORT_SUB:
+			AtEOSubXact_LOLOR_LargeObject(false, mySubid, parentSubid);
+			break;
+		default:
+			break;
+	}
 }
 
 /*
- * lolor_lo_close - large object close
+ * Entry point for this module.
  */
-Datum
-lolor_lo_close(PG_FUNCTION_ARGS)
+void
+_PG_init(void)
 {
-	Datum	lobjFd = PG_GETARG_DATUM(0);
+	LOLOR_LargeObjectRelationId = get_lobj_table_oid(LOLOR_LARGEOBJECT_CATALOG);
+	LOLOR_LargeObjectLOidPNIndexId = get_lobj_table_oid(LOLOR_LARGEOBJECT_PKEY);
+	LOLOR_LargeObjectMetadataRelationId =
+			get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA);
+	LOLOR_LargeObjectMetadataOidIndexId =
+			get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA_PKEY);
 
-	elog(LOG, "PGLOTEST - lo_close(%d)",
-		 DatumGetInt32(lobjFd));
-	return DirectFunctionCall1(be_lo_close, lobjFd);
+	RegisterXactCallback(lolor_xact_callback, NULL);
+	RegisterSubXactCallback(lolor_subxact_callback, NULL);
 }
 
 /*
@@ -136,6 +182,27 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 				" RENAME TO lo_close_to_drop", false, 0);
 	SPI_execute("ALTER FUNCTION pg_catalog.lo_close_orig(int4)"
 				" RENAME TO lo_close", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_creat(integer)"
+				" RENAME TO lo_creat_to_drop", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_creat_orig(integer)"
+				" RENAME TO lo_creat", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_create(oid)"
+				" RENAME TO lo_create_to_drop", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_create_orig(oid)"
+				" RENAME TO lo_create", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.loread(integer, integer)"
+				" RENAME TO loread_to_drop", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.loread_orig(integer, integer)"
+				" RENAME TO loread", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lowrite(integer, bytea)"
+				" RENAME TO lowrite_to_drop", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lowrite_orig(integer, bytea)"
+				" RENAME TO lowrite", false, 0);
+
 
 	SPI_finish();
 

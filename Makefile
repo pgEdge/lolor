@@ -1,11 +1,12 @@
 # contrib/lolor/Makefile
 
-MODULES = lolor
+MODULE_big = lolor
 
 EXTENSION = lolor
 DATA = lolor--1.0.sql
 PGFILEDESC = "lolor - drop in large objects replacement for logical replication"
 
+OBJS = lolor.o lolor_fsstubs.o lolor_inv_api.o lolor_largeobject.o
 REGRESS = lolor
 
 ifdef USE_PGXS

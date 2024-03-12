@@ -2,5 +2,6 @@
 comment = 'Large Objects support for logical replication'
 default_version = '1.0'
 module_pathname = '$libdir/lolor'
-relocatable = true
+relocatable = false
 trusted = true
+schema = lolor
