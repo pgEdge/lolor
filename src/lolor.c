@@ -94,13 +94,17 @@ lolor_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 void
 _PG_init(void)
 {
-	LOLOR_LargeObjectRelationId = get_lobj_table_oid(LOLOR_LARGEOBJECT_CATALOG);
-	LOLOR_LargeObjectLOidPNIndexId = get_lobj_table_oid(LOLOR_LARGEOBJECT_PKEY);
+	/* gather info of large object tables from lolor extension */
+	LOLOR_LargeObjectRelationId =
+			get_lobj_table_oid(LOLOR_LARGEOBJECT_CATALOG);
+	LOLOR_LargeObjectLOidPNIndexId =
+			get_lobj_table_oid(LOLOR_LARGEOBJECT_PKEY);
 	LOLOR_LargeObjectMetadataRelationId =
 			get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA);
 	LOLOR_LargeObjectMetadataOidIndexId =
 			get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA_PKEY);
 
+	/* register transaction callbacks for cleanup. */
 	RegisterXactCallback(lolor_xact_callback, NULL);
 	RegisterSubXactCallback(lolor_subxact_callback, NULL);
 }
@@ -210,6 +214,76 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	SPI_execute("ALTER FUNCTION pg_catalog.lowrite_orig(integer, bytea)"
 				" RENAME TO lowrite", false, 0);
 
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_export(oid, text)"
+				" RENAME TO lo_export_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_export_orig(oid, text)"
+				" RENAME TO lo_export;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_from_bytea(oid, bytea)"
+				" RENAME TO lo_from_bytea_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_from_bytea_orig(oid, bytea)"
+				" RENAME TO lo_from_bytea;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_get(oid)"
+				" RENAME TO lo_get_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_get_orig(oid)"
+				" RENAME TO lo_get;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_get(oid, bigint, integer)"
+				" RENAME TO lo_get_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_get_orig(oid, bigint, integer)"
+				" RENAME TO lo_get;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_import(text)"
+				" RENAME TO lo_import_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_import_orig(text)"
+				" RENAME TO lo_import;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_import(text, oid)"
+				" RENAME TO lo_import_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_import_orig(text, oid)"
+				" RENAME TO lo_import;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_lseek(integer, integer, integer)"
+				" RENAME TO lo_lseek_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_lseek_orig(integer, integer, integer)"
+				" RENAME TO lo_lseek;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_lseek64(integer, bigint, integer)"
+				" RENAME TO lo_lseek64_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_lseek64_orig(integer, bigint, integer)"
+				" RENAME TO lo_lseek64;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_put(oid, bigint, bytea)"
+				" RENAME TO lo_put_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_put_orig(oid, bigint, bytea)"
+				" RENAME TO lo_put;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_tell(integer)"
+				" RENAME TO lo_tell_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_tell_orig(integer)"
+				" RENAME TO lo_tell;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_tell64(integer)"
+				" RENAME TO lo_tell64_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_tell64_orig(integer)"
+				" RENAME TO lo_tell64;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_truncate(integer, integer)"
+				" RENAME TO lo_truncate_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_truncate_orig(integer, integer)"
+				" RENAME TO lo_truncate;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_truncate64(integer, bigint)"
+				" RENAME TO lo_truncate64_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_truncate64_orig(integer, bigint)"
+				" RENAME TO lo_truncate64;", false, 0);
+
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_unlink(oid)"
+				" RENAME TO lo_unlink_to_drop;", false, 0);
+	SPI_execute("ALTER FUNCTION pg_catalog.lo_unlink_orig(oid)"
+				" RENAME TO lo_unlink;", false, 0);
 
 	SPI_finish();
 
