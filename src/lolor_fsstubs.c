@@ -1,14 +1,15 @@
 /*-------------------------------------------------------------------------
  *
- * be-fsstubs.c
+ * lolor_fsstubs.c
  *	  Builtin functions for open/close/read/write operations on large objects
  *
+ * Copyright (c) 2022-2024, pgEdge, Inc.
  * Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  src/backend/libpq/be-fsstubs.c
+ *	  contrib/lolor/src/lolor_fsstubs.c
  *
  * NOTES
  *	  This should be moved to a more appropriate place.  It is here

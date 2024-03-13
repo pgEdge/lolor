@@ -1,6 +1,6 @@
 /*-------------------------------------------------------------------------
  *
- * inv_api.c
+ * lolor_inv_api.c
  *	  routines for manipulating inversion fs large objects. This file
  *	  contains the user-level large object application interface routines.
  *
@@ -19,12 +19,13 @@
  * memory context given to lolor_inv_open (for LargeObjectDesc structs).
  *
  *
+ * Copyright (c) 2022-2024, pgEdge, Inc.
  * Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  src/backend/storage/large_object/inv_api.c
+ *	  contrib/lolor/src/lolor_inv_api.c
  *
  *-------------------------------------------------------------------------
  */

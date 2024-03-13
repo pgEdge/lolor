@@ -1,8 +1,15 @@
-/*
- *	PostgreSQL definitions for Large Objects for logical replication.
+/*-------------------------------------------------------------------------
+ * lolor.c
+ *	  PostgreSQL definitions for Large Objects for logical replication.
  *
- *	contrib/lolor/lolor.c
+ * Copyright (c) 2022-2024, pgEdge, Inc.
+ * Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1994, Regents of the University of California
  *
+ * IDENTIFICATION
+ *	contrib/lolor/src/lolor.c
+ *
+ *-------------------------------------------------------------------------
  */
 
 #include "postgres.h"
