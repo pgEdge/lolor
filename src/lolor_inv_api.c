@@ -360,7 +360,8 @@ lolor_inv_drop(Oid lobjId)
 	object.classId = LOLOR_LargeObjectRelationId;
 	object.objectId = lobjId;
 	object.objectSubId = 0;
-	performDeletion(&object, DROP_CASCADE, 0);
+	performDeletion(&object, DROP_CASCADE, PERFORM_DELETION_SKIP_ORIGINAL);
+	LOLOR_LargeObjectDrop(object.objectId);
 
 	/*
 	 * Advance command counter so that tuple removal will be seen by later
