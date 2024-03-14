@@ -52,6 +52,7 @@
 // #include "storage/large_object.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
+#include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 #include "varatt.h"
@@ -344,6 +345,7 @@ Datum
 lolor_lo_unlink(PG_FUNCTION_ARGS)
 {
 	Oid			lobjId = PG_GETARG_OID(0);
+	bool		lo_compat_privileges;
 
 	PreventCommandIfReadOnly("lo_unlink()");
 
@@ -352,6 +354,10 @@ lolor_lo_unlink(PG_FUNCTION_ARGS)
 	 * in lolor_inv_drop(), but we want to throw the error before not after closing
 	 * relevant FDs.
 	 */
+
+	lo_compat_privileges = (strcmp(
+		GetConfigOptionByName("lo_compat_privileges", NULL, false), "on") == 0);
+
 	if (!lo_compat_privileges &&
 		!object_ownercheck(LOLOR_LargeObjectRelationId, lobjId, GetUserId()))
 		ereport(ERROR,
