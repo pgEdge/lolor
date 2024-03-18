@@ -13,6 +13,7 @@
 #define LOLOR_LARGEOBJECT_H
 
 #include "storage/large_object.h"
+#include "utils/acl.h"
 
 #define EXTENSION_NAME					"lolor"
 #define LOLOR_LARGEOBJECT_CATALOG		"pg_largeobject"
@@ -54,6 +55,8 @@ extern void lolor_inv_truncate(LargeObjectDesc *obj_desc, int64 len);
 extern void AtEOXact_LOLOR_LargeObject(bool isCommit);
 extern void AtEOSubXact_LOLOR_LargeObject(bool isCommit, SubTransactionId mySubid,
 									SubTransactionId parentSubid);
+AclResult lolor_largeobject_aclcheck_snapshot(Oid lobj_oid, Oid roleid, AclMode mode,
+								 Snapshot snapshot);
 
 extern Datum lolor_lo_create(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_import(PG_FUNCTION_ARGS);

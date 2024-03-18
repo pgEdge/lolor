@@ -46,19 +46,14 @@
 #include "catalog/pg_largeobject_metadata.h"
 #include "libpq/libpq-fs.h"
 #include "miscadmin.h"
-// #include "storage/large_object.h"
 #include "utils/acl.h"
 #include "utils/fmgroids.h"
+#include "utils/guc.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 
 #include "lolor.h"
 
-
-/*
- * GUC: backwards-compatibility flag to suppress LO permission checks
- */
-bool		lo_compat_privileges;
 
 /*
  * All accesses to pg_largeobject and its index make use of a single Relation
@@ -292,7 +287,7 @@ lolor_inv_open(Oid lobjId, int flags, MemoryContext mcxt)
 	if ((descflags & IFS_RDLOCK) != 0)
 	{
 		if (!lo_compat_privileges &&
-			pg_largeobject_aclcheck_snapshot(lobjId,
+			lolor_largeobject_aclcheck_snapshot(lobjId,
 											 GetUserId(),
 											 ACL_SELECT,
 											 snapshot) != ACLCHECK_OK)
@@ -304,7 +299,7 @@ lolor_inv_open(Oid lobjId, int flags, MemoryContext mcxt)
 	if ((descflags & IFS_WRLOCK) != 0)
 	{
 		if (!lo_compat_privileges &&
-			pg_largeobject_aclcheck_snapshot(lobjId,
+			lolor_largeobject_aclcheck_snapshot(lobjId,
 											 GetUserId(),
 											 ACL_UPDATE,
 											 snapshot) != ACLCHECK_OK)

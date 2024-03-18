@@ -43,15 +43,16 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "access/genam.h"
+#include "access/heapam.h"
 #include "access/xact.h"
-//#include "catalog/pg_largeobject.h"
-//#include "libpq/be-fsstubs.h"
+#include "catalog/pg_largeobject_metadata.h"
 #include "libpq/libpq-fs.h"
 #include "miscadmin.h"
 #include "storage/fd.h"
-// #include "storage/large_object.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
+#include "utils/fmgroids.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
@@ -90,6 +91,9 @@ PG_FUNCTION_INFO_V1(lolor_lo_put);
 
 static int	lo_read(int fd, char *buf, int len);
 static int	lo_write(int fd, const char *buf, int len);
+static bool lolor_object_ownercheck(Oid classid, Oid objectid, Oid roleid);
+static AclMode lolor_largeobject_aclmask_snapshot(Oid lobj_oid, Oid roleid,
+					AclMode mask, AclMaskHow how, Snapshot snapshot);
 
 /*
  * LO "FD"s are indexes into the cookies array.
@@ -345,7 +349,6 @@ Datum
 lolor_lo_unlink(PG_FUNCTION_ARGS)
 {
 	Oid			lobjId = PG_GETARG_OID(0);
-	bool		lo_compat_privileges;
 
 	PreventCommandIfReadOnly("lo_unlink()");
 
@@ -354,12 +357,8 @@ lolor_lo_unlink(PG_FUNCTION_ARGS)
 	 * in lolor_inv_drop(), but we want to throw the error before not after closing
 	 * relevant FDs.
 	 */
-
-	lo_compat_privileges = (strcmp(
-		GetConfigOptionByName("lo_compat_privileges", NULL, false), "on") == 0);
-
 	if (!lo_compat_privileges &&
-		!object_ownercheck(LOLOR_LargeObjectRelationId, lobjId, GetUserId()))
+		!lolor_object_ownercheck(LOLOR_LargeObjectMetadataRelationId, lobjId, GetUserId()))
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("must be owner of large object %u", lobjId)));
@@ -898,10 +897,10 @@ lolor_lo_put(PG_FUNCTION_ARGS)
 
 	/* Permission check */
 	if (!lo_compat_privileges &&
-		pg_largeobject_aclcheck_snapshot(loDesc->id,
-										 GetUserId(),
-										 ACL_UPDATE,
-										 loDesc->snapshot) != ACLCHECK_OK)
+		lolor_largeobject_aclcheck_snapshot(loDesc->id,
+											GetUserId(),
+											ACL_UPDATE,
+											loDesc->snapshot) != ACLCHECK_OK)
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("permission denied for large object %u",
@@ -913,4 +912,142 @@ lolor_lo_put(PG_FUNCTION_ARGS)
 	lolor_inv_close(loDesc);
 
 	PG_RETURN_VOID();
+}
+
+static bool
+lolor_object_ownercheck(Oid classid, Oid objectid, Oid roleid)
+{
+	Oid			ownerId;
+	Relation	rel;
+	ScanKeyData entry[1];
+	SysScanDesc scan;
+	HeapTuple	tuple;
+	bool		isnull;
+
+	/* Superusers bypass all permission checking. */
+	if (superuser_arg(roleid))
+		return true;
+
+	rel = table_open(classid, AccessShareLock);
+	ScanKeyInit(&entry[0],
+				Anum_pg_largeobject_metadata_oid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(objectid));
+
+	scan = systable_beginscan(rel,
+								LOLOR_LargeObjectMetadataOidIndexId, true,
+								NULL, 1, entry);
+
+	tuple = systable_getnext(scan);
+	if (!HeapTupleIsValid(tuple))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+					errmsg("large object metadata with OID %u does not exist", objectid)));
+
+	ownerId = DatumGetObjectId(heap_getattr(tuple,
+											Anum_pg_largeobject_metadata_lomowner,
+											RelationGetDescr(rel),
+											&isnull));
+	Assert(!isnull);
+
+	systable_endscan(scan);
+	table_close(rel, AccessShareLock);
+
+	return has_privs_of_role(roleid, ownerId);
+}
+
+/*
+ * Exported routine for checking a user's access privileges to a largeobject
+ */
+AclResult
+lolor_largeobject_aclcheck_snapshot(Oid lobj_oid, Oid roleid, AclMode mode,
+								 Snapshot snapshot)
+{
+	if (lolor_largeobject_aclmask_snapshot(lobj_oid, roleid, mode,
+										ACLMASK_ANY, snapshot) != 0)
+		return ACLCHECK_OK;
+	else
+		return ACLCHECK_NO_PRIV;
+}
+
+/*
+ * Routine for examining a user's privileges for a largeobject
+ *
+ * When a large object is opened for reading, it is opened relative to the
+ * caller's snapshot, but when it is opened for writing, a current
+ * MVCC snapshot will be used.  See doc/src/sgml/lobj.sgml.  This function
+ * takes a snapshot argument so that the permissions check can be made
+ * relative to the same snapshot that will be used to read the underlying
+ * data.  The caller will actually pass NULL for an instantaneous MVCC
+ * snapshot, since all we do with the snapshot argument is pass it through
+ * to systable_beginscan().
+ */
+static AclMode
+lolor_largeobject_aclmask_snapshot(Oid lobj_oid, Oid roleid,
+								AclMode mask, AclMaskHow how,
+								Snapshot snapshot)
+{
+	AclMode		result;
+	Relation	pg_lo_meta;
+	ScanKeyData entry[1];
+	SysScanDesc scan;
+	HeapTuple	tuple;
+	Datum		aclDatum;
+	bool		isNull;
+	Acl		   *acl;
+	Oid			ownerId;
+
+	/* Superusers bypass all permission checking. */
+	if (superuser_arg(roleid))
+		return mask;
+
+	/*
+	 * Get the largeobject's ACL from pg_largeobject_metadata
+	 */
+	pg_lo_meta = table_open(LOLOR_LargeObjectMetadataRelationId,
+							AccessShareLock);
+
+	ScanKeyInit(&entry[0],
+				Anum_pg_largeobject_metadata_oid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(lobj_oid));
+
+	scan = systable_beginscan(pg_lo_meta,
+							  LOLOR_LargeObjectMetadataOidIndexId, true,
+							  snapshot, 1, entry);
+
+	tuple = systable_getnext(scan);
+	if (!HeapTupleIsValid(tuple))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("large object %u does not exist", lobj_oid)));
+
+	ownerId = ((Form_pg_largeobject_metadata) GETSTRUCT(tuple))->lomowner;
+
+	aclDatum = heap_getattr(tuple, Anum_pg_largeobject_metadata_lomacl,
+							RelationGetDescr(pg_lo_meta), &isNull);
+
+	if (isNull)
+	{
+		/* No ACL, so build default ACL */
+		acl = acldefault(OBJECT_LARGEOBJECT, ownerId);
+		aclDatum = (Datum) 0;
+	}
+	else
+	{
+		/* detoast ACL if necessary */
+		acl = DatumGetAclP(aclDatum);
+	}
+
+	result = aclmask(acl, roleid, ownerId, mask, how);
+
+	/* if we have a detoasted copy, free it */
+	if (acl && (Pointer) acl != DatumGetPointer(aclDatum))
+		pfree(acl);
+
+	systable_endscan(scan);
+
+	table_close(pg_lo_meta, AccessShareLock);
+
+	return result;
 }
