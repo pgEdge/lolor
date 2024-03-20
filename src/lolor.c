@@ -22,12 +22,15 @@
 #include "nodes/parsenodes.h"
 #include "nodes/print.h"
 #include "utils/builtins.h"
+#include "utils/guc.h"
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
 
 #include "lolor.h"
 
 PG_MODULE_MAGIC;
+
+int32 lolor_node_id = 0;
 
 /* keep Oids of the large object catalog. */
 Oid	LOLOR_LargeObjectRelationId = InvalidOid;
@@ -94,6 +97,17 @@ lolor_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 void
 _PG_init(void)
 {
+	DefineCustomIntVariable("lolor.node",
+							"Unique id of current node.",
+							NULL,
+							&lolor_node_id,
+							0,
+							1,
+							16,
+							PGC_SUSET,
+							0,
+							NULL, NULL, NULL);
+
 	/* gather info of large object tables from lolor extension */
 	LOLOR_LargeObjectRelationId =
 			get_lobj_table_oid(LOLOR_LARGEOBJECT_CATALOG);

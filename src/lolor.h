@@ -22,6 +22,7 @@
 #define LOLOR_LARGEOBJECT_METADATA_PKEY	"pg_largeobject_metadata_pkey"
 
 /* lolor.c */
+extern int32 lolor_node_id;
 extern Oid  LOLOR_LargeObjectRelationId;
 extern Oid	LOLOR_LargeObjectLOidPNIndexId;
 extern Oid	LOLOR_LargeObjectMetadataRelationId;
@@ -33,7 +34,8 @@ extern Oid get_lobj_table_oid(const char *table);
 extern Oid	LOLOR_LargeObjectCreate(Oid loid);
 extern void LOLOR_LargeObjectDrop(Oid loid);
 extern bool LOLOR_LargeObjectExists(Oid loid);
-
+extern Oid LOLOR_GetNewOidWithIndex(Relation relation, Oid indexId,
+									AttrNumber oidcolumn);
 
 /* inversion stuff in lolor_inv_api.c */
 extern void lolor_close_lo_relation(bool isCommit);
