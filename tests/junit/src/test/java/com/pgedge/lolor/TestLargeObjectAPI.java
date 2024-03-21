@@ -87,6 +87,10 @@ public class TestLargeObjectAPI {
             throws Exception {
         try {
 //            Class.forName(dbProps.getProperty("url"));
+            if (dbProps.getOrDefault("with_lolor_extension", 1).equals("1")) {
+                dbProps.setProperty("options", "-c search_path=lolor,\"$user\",public,pg_catalog");
+            }
+
             pgconn = DriverManager.getConnection(dbProps.getProperty("url"), dbProps);
             pgconn.setAutoCommit(false);
         } catch (SQLException e) {
