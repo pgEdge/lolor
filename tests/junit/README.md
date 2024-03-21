@@ -31,8 +31,20 @@ calling lo_* methods directly.
 
 ## Maven - How to run Unit Test
 
-There is a need to install `maven` on the system.
+There is a need to install `maven` on the system e.g.
+
+*Debian*
+sudo apt install maven
+
+*Redhat (Rocky/RHEL)*
+
+Download and install latest maven package from https://maven.apache.org/download.cgi
+
+### Settings 
+
 Use `test.properties` for test suite settings e.g. database connection, etc.
+
+### Run test suite
 
 ```
 $ cd junit-tests

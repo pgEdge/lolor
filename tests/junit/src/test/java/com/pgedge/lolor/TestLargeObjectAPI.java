@@ -25,6 +25,14 @@ import org.postgresql.largeobject.LargeObjectManager;
 //TODO: remove redundant code / refactor
 
 public class TestLargeObjectAPI {
+    public static Connection getPgconn() {
+        return pgconn;
+    }
+
+    public static void setPgconn(Connection pgconn) {
+        pgconn = pgconn;
+    }
+
     private static Connection pgconn = null;
     private static Properties dbProps;
     private final static String dbPropsFile = "test.properties";
@@ -75,7 +83,7 @@ public class TestLargeObjectAPI {
    /*
     * Connect with PG
     * */
-    private static void connectPG()
+    public static void connectPG()
             throws Exception {
         try {
 //            Class.forName(dbProps.getProperty("url"));
@@ -89,7 +97,7 @@ public class TestLargeObjectAPI {
     /*
      * Close the connection
      * */
-    private static void disconnectPG()
+    public static void disconnectPG()
             throws Exception {
         try {
             /*TODO: check if already connection */
@@ -102,7 +110,7 @@ public class TestLargeObjectAPI {
     /*
      * Close the connection
      * */
-    private static void executeSQL(String sql)
+    public static void executeSQL(String sql)
             throws Exception {
         Statement stmt = null;
         try {
