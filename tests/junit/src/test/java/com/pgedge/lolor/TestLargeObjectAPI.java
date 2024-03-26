@@ -1,5 +1,6 @@
 package com.pgedge.lolor;
 
+import static com.pgedge.lolor.Utility.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterAll;
@@ -8,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import java.sql.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.Properties;
 
 import org.postgresql.PGConnection;
 import org.postgresql.largeobject.LargeObject;
@@ -23,19 +23,8 @@ import org.postgresql.largeobject.LargeObjectManager;
 * */
 
 //TODO: remove redundant code / refactor
-
 public class TestLargeObjectAPI {
-    public static Connection getPgconn() {
-        return pgconn;
-    }
-
-    public static void setPgconn(Connection pgconn) {
-        pgconn = pgconn;
-    }
-
     private static Connection pgconn = null;
-    private static Properties dbProps;
-    private final static String dbPropsFile = "test.properties";
     private final String textFile1 = "data/text1.data";
     private final String textFile2 = "data/text2.data";
 /*TODO:    private String binFile1 = "data/bin1.data";*/
@@ -70,61 +59,11 @@ public class TestLargeObjectAPI {
     }
 
     /*
-     * Connect with PG
-     * */
-    public static void loadDBPropertiesFile() throws Exception {
-
-        dbProps = new Properties();
-        InputStream in = new FileInputStream(dbPropsFile);
-        dbProps.load(in);
-        in.close();
-    }
-
-   /*
-    * Connect with PG
-    * */
-    public static void connectPG()
-            throws Exception {
-        try {
-//            Class.forName(dbProps.getProperty("url"));
-            if (dbProps.getOrDefault("with_lolor_extension", 1).equals("1")) {
-                dbProps.setProperty("options", "-c search_path=lolor,\"$user\",public,pg_catalog");
-            }
-
-            pgconn = DriverManager.getConnection(dbProps.getProperty("url"), dbProps);
-            pgconn.setAutoCommit(false);
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /*
-     * Close the connection
-     * */
-    public static void disconnectPG()
-            throws Exception {
-        try {
-            /*TODO: check if already connection */
-            pgconn.close();
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /*
      * Close the connection
      * */
     public static void executeSQL(String sql)
             throws Exception {
-        Statement stmt = null;
-        try {
-            stmt = pgconn.createStatement();
-            stmt.executeUpdate(sql);
-            stmt.close();
-            pgconn.commit();
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+        Utility.executeSQL(sql, true);
     }
 
     /*
@@ -132,18 +71,13 @@ public class TestLargeObjectAPI {
      * */
     private static void initDB()
             throws Exception {
-        String createExt = "CREATE EXTENSION IF NOT EXISTS lolor;";
-        String dropExt = "DROP EXTENSION IF EXISTS lolor;";
+        Utility.initDB();
+        pgconn = getPgconn();
         String dropTableSql = "DROP TABLE IF EXISTS pglotest_blobs CASCADE;";
         String createTableSql = "CREATE TABLE pglotest_blobs (\n" +
                 "        fname           text PRIMARY KEY,\n" +
                 "        blob            oid\n" +
                 ");";
-        if (dbProps.getOrDefault("with_lolor_extension", 1).equals("1")) {
-            executeSQL(createExt);
-        } else {
-            executeSQL(dropExt);
-        }
         executeSQL(dropTableSql);
         executeSQL(createTableSql);
     }

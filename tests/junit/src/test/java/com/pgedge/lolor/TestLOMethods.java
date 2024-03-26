@@ -1,15 +1,10 @@
 package com.pgedge.lolor;
 
+import static com.pgedge.lolor.Utility.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.sql.*;
-import java.io.*;
-import java.util.Properties;
 
 /*
 * `TestLOMethods` class relies on calling LO_* methods directly to assess the
@@ -41,149 +36,6 @@ import java.util.Properties;
 
 //TODO: remove redundant code / refactor
 public class TestLOMethods {
-    private static Connection pgconn = null;
-    private static Properties dbProps;
-    private final static String dbPropsFile = "test.properties";
-
-    /*
-    * Query result
-    * It contains executed SQL and results returned
-    * */
-    private static class QueryResult {
-        String sql;
-
-        public QueryResult(String sql) {
-            this.sql = sql;
-        }
-
-        String result;
-
-        @Override
-        public String toString() {
-            return sql + "\n" + result;
-        }
-
-        public String getSql() {
-            return sql;
-        }
-
-        public void setSql(String sql) {
-            this.sql = sql;
-        }
-
-        public String getResult() {
-            return result;
-        }
-
-        public void setResult(String result) {
-            this.result = result;
-        }
-    }
-
-    /*
-     * load property file
-     * */
-    public static void loadDBPropertiesFile() throws Exception {
-
-        dbProps = new Properties();
-        InputStream in = new FileInputStream(dbPropsFile);
-        dbProps.load(in);
-        in.close();
-    }
-
-   /*
-    * Connect with PG
-    * */
-    public static void connectPG()
-            throws Exception {
-        try {
-//            Class.forName(dbProps.getProperty("url"));
-            if (dbProps.getOrDefault("with_lolor_extension", 1).equals("1")) {
-                dbProps.setProperty("options", "-c search_path=lolor,\"$user\",public,pg_catalog");
-            }
-
-            pgconn = DriverManager.getConnection(dbProps.getProperty("url"), dbProps);
-            pgconn.setAutoCommit(false);
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /*
-     * Close the connection
-     * */
-    public static void disconnectPG()
-            throws Exception {
-        try {
-            /*TODO: check if already connection */
-            pgconn.close();
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /*
-     * Run query and return results
-     * Perform commit if asked
-     * */
-    public static QueryResult executeSQL(String sql, boolean doCommit)
-            throws Exception {
-        QueryResult result = new QueryResult(sql);
-        try {
-            StringBuilder sbResult = new StringBuilder();
-            PreparedStatement ps = pgconn.prepareStatement(sql);
-            ResultSet rs = ps.executeQuery();
-            ResultSetMetaData rsmd = rs.getMetaData();
-            int columnsNumber = rsmd.getColumnCount();
-            for (int i = 1; i <= columnsNumber; i++) {
-                if (i > 1) sbResult.append(",");
-                sbResult.append(rsmd.getColumnName(i));
-            }
-            sbResult.append("\n");
-            if (true) {
-                while (rs.next()) {
-                    for (int i = 1; i <= columnsNumber; i++) {
-                        if (i > 1) sbResult.append(",");
-                        String columnValue = rs.getString(i);
-                        sbResult.append(columnValue);
-                    }
-                    sbResult.append("\n");
-                }
-            }
-            if(doCommit) {
-                pgconn.commit();
-            }
-            result.setResult(sbResult.toString().trim());
-            return result;
-        } catch (SQLException e) {
-            // 02000 = no_data
-            if(e.getSQLState().compareTo("02000") == 0) {
-                return result;
-            } else {
-                throw new RuntimeException(e);
-            }
-        }
-    }
-
-    public static QueryResult executeSQL(String sql)
-            throws Exception {
-        return executeSQL(sql, false);
-    }
-
-    /*
-     * Initialize database
-     * */
-    private static void initDB()
-            throws Exception {
-        String createExt = "CREATE EXTENSION IF NOT EXISTS lolor;";
-        String dropExt = "DROP EXTENSION IF EXISTS lolor;";
-        if (dbProps.getOrDefault("with_lolor_extension", 1).equals("1")) {
-            executeSQL(createExt);
-        } else {
-            executeSQL(dropExt);
-        }
-    }
-
     /*
     * Initialise and make things ready
     * */
@@ -202,68 +54,6 @@ public class TestLOMethods {
     public static void cleanUp()
             throws Exception {
         disconnectPG();
-    }
-
-    /*
-     * Read disk file and return all the contents as String
-     */
-    private String readFile(String fname)
-            throws Exception {
-        FileInputStream fis = new FileInputStream(fname);
-        byte[] buffer = new byte[10];
-        StringBuilder sb = new StringBuilder();
-        while (fis.read(buffer) != -1) {
-            sb.append(new String(buffer));
-            buffer = new byte[10];
-        }
-        fis.close();
-        return sb.toString().trim();
-    }
-
-    /*
-    * Write String contents as disk file
-    * */
-    private void writeFile(String fname, String content)
-            throws Exception {
-        Files.write(Paths.get(fname), content.getBytes());
-    }
-
-    /*
-    * Count the number of lines in the String
-    * */
-    private static int numberOfLines(String str){
-        return str.split("\r\n|\r|\n").length;
-    }
-
-    /*
-    * Compare two Strings
-    * Pass line numbers as argument to be compared
-    * */
-    private static boolean compareLines(String str1, String str2, int... args){
-        String[] strArr1 = str1.split("\r\n|\r|\n");
-        String[] strArr2 = str2.split("\r\n|\r|\n");
-        if(args != null && args.length != 0) {
-            for (int n : args) {
-                if (strArr1.length <= n || strArr2.length <= n ||
-                        strArr1[n].compareTo(strArr2[n]) != 0) {
-                    return false;
-                }
-            }
-        } else {
-            return str1.compareTo(str2) == 0;
-        }
-        return true;
-    }
-
-    /*
-    * Get particular line from multi line String
-    * */
-    private static String getLine(String str, int line){
-        String[] strArr = str.split("\r\n|\r|\n");
-        if(strArr.length <= line) {
-            return "";
-        }
-        return strArr[line];
     }
 
     /*
