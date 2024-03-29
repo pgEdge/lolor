@@ -265,11 +265,32 @@ public class Utility {
     /*
      * Query pg_largeobject table
      */
-    public void pg_largeobject(int loid, boolean exists)
+    public static void pg_largeobject(int loid, boolean exists)
             throws Exception {
         QueryResult result = executeSQL("select * from pg_largeobject where loid = " + loid + ";");
         String expected_file = exists ? "pg_largeobject_oid_exist" : "pg_largeobject_oid_not_exist";
         String expected = readFile("expected/" + expected_file);
+        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
+    }
+
+    /*
+     * Query lo_get table
+     */
+    public static void lo_get(int loid, boolean exists)
+            throws Exception {
+        QueryResult result = executeSQL("select convert_from(lo_get(" + loid + "), 'utf-8');", true);
+        String expected_file = exists ? "lo_get_oid_exist" : "lo_get_oid_not_exist";
+        String expected = readFile("expected/" + expected_file);
+        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
+    }
+
+    /*
+     * Test lo_truncate64 method
+     */
+    public static void lo_truncate64(int fd, int size)
+            throws Exception {
+        QueryResult result = executeSQL("select lo_truncate64(" + fd + "," + size + ");", false);
+        String expected = readFile("expected/lo_truncate64");
         assertEquals(expected, result.getResult());
     }
 

@@ -4,6 +4,10 @@ import static com.pgedge.lolor.Utility.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterAll;
+import org.postgresql.util.PSQLException;
+
+import java.sql.SQLException;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /*
@@ -306,12 +310,46 @@ public class TestLOMethods {
     }
 
     /*
+     * Test lo_lseek64
+     */
+    public int t4_f_lo_lseek64(int fd)
+            throws Exception {
+        QueryResult result = executeSQL("SELECT lo_lseek(" + fd + ", 5, 0);", false);
+        String expected = readFile("expected/t4_f_lo_lseek64");
+        // verify
+        assertEquals(expected, result.getResult());
+        return fd;
+    }
+
+    /*
+     * Test lo_tell64
+     */
+    public int t4_g_lo_tell64(int fd)
+            throws Exception {
+        QueryResult result = executeSQL("SELECT lo_tell64(" + fd + ");", false);
+        String expected = readFile("expected/t4_d_lo_tell64");
+        // verify
+        assertEquals(expected, result.getResult());
+        return fd;
+    }
+
+    /*
+     * Test lo_truncate method
+     */
+    public void t4_h_lo_truncate(int fd, int size)
+            throws Exception {
+        QueryResult result = executeSQL("select lo_truncate(" + fd + "," + size + ");", false);
+        String expected = readFile("expected/t4_h_lo_truncate");
+        assertEquals(expected, result.getResult());
+    }
+
+    /*
      * Test lo_close
      */
-    public int t4_f_lo_close(int fd)
+    public int t4_i_lo_close(int fd)
             throws Exception {
         QueryResult result = executeSQL("SELECT lo_close(" + fd + ");");
-        String expected = readFile("expected/t4_f_lo_close");
+        String expected = readFile("expected/t4_i_lo_close");
         assertEquals(expected, result.getResult());
         return fd;
     }
@@ -319,11 +357,11 @@ public class TestLOMethods {
     /*
      * Test pg_largeobject_metadata
      */
-    public void t4_g_pg_largeobject_metadata(int loid)
+    public void t4_j_pg_largeobject_metadata(int loid)
             throws Exception {
         executeSQL("set bytea_output = 'escape';");
         QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";");
-        String expected = readFile("expected/t4_g_pg_largeobject_metadata");
+        String expected = readFile("expected/t4_j_pg_largeobject_metadata");
         // verify
         assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
     }
@@ -331,10 +369,10 @@ public class TestLOMethods {
     /*
      * Test pg_largeobject
      */
-    public void t4_h_pg_largeobject(int loid)
+    public void t4_k_pg_largeobject(int loid)
             throws Exception {
         QueryResult result = executeSQL("select * from pg_largeobject where loid = " + loid + ";");
-        String expected = readFile("expected/t4_h_pg_largeobject");
+        String expected = readFile("expected/t4_k_pg_largeobject");
         // verify
         assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
     }
@@ -342,10 +380,10 @@ public class TestLOMethods {
     /*
      * Test lo_unlink
      */
-    public void t4_i_lo_unlink(int loid)
+    public void t4_l_lo_unlink(int loid)
             throws Exception {
         QueryResult result = executeSQL("select lo_unlink(" + loid + ");");
-        String expected = readFile("expected/t4_i_lo_unlink");
+        String expected = readFile("expected/t4_l_lo_unlink");
         // verify
         assertEquals(expected, result.getResult());
     }
@@ -353,11 +391,80 @@ public class TestLOMethods {
     /*
      * Test pg_largeobject_metadata
      */
-    public void t4_j_pg_largeobject_metadata(int loid)
+    public void t4_m_pg_largeobject_metadata(int loid)
             throws Exception {
         QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";");
-        String expected = readFile("expected/t4_j_pg_largeobject_metadata");
+        String expected = readFile("expected/t4_m_pg_largeobject_metadata");
         // verify
+        assertEquals(expected, result.getResult());
+    }
+
+    /*
+     * Test lo_from_bytea
+     */
+    public int t5_a_lo_from_bytea()
+            throws Exception {
+        // TODO: probably pick SQL from file
+        QueryResult result = executeSQL("SELECT lo_from_bytea(0, '0123456789abcdefghijklmnopqrstuvwxyz'::bytea);");
+        // get large object oid
+        int loid = Integer.parseInt(getLine(result.getResult(), 1));
+        String expected = readFile("expected/t5_a_lo_from_bytea");
+        // verify
+        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
+        return loid;
+    }
+
+    /*
+     * Test lo_from_bytea
+     */
+    public void t5_d_lo_from_bytea(int loid)
+            throws Exception {
+        // TODO: probably pick SQL from file
+        String exceptionText = "";
+        try {
+            QueryResult result = executeSQL("SELECT lo_from_bytea(" + loid + ", 'Updated text 123'::bytea);");
+        } catch (RuntimeException exception) {
+            if(exception.getCause().getClass().getName().compareTo("org.postgresql.util.PSQLException") == 0 &&
+                    ((PSQLException)exception.getCause()).getSQLState().compareTo("23505") == 0) {
+                exceptionText = ((PSQLException)exception.getCause()).toString();
+            }
+        }
+        String expected = readFile("expected/t5_d_lo_from_bytea");
+        // verify
+        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), exceptionText);
+    }
+
+    /*
+     * Test lo_put
+     */
+    public int t5_f_lo_put(int loid)
+            throws Exception {
+        // TODO: probably pick SQL from file
+        QueryResult result = executeSQL("SELECT lo_put(" + loid + ", 4, 'XYZ'::bytea);");
+        String expected = readFile("expected/t5_f_lo_put");
+        // verify
+        assertEquals(expected, result.getResult());
+        return loid;
+    }
+
+    /*
+     * Test pg_largeobject
+     */
+    public void t5_g_pg_largeobject(int loid)
+            throws Exception {
+        QueryResult result = executeSQL("select * from pg_largeobject where loid = " + loid + ";");
+        String expected = readFile("expected/t5_g_pg_largeobject");
+        // verify
+        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
+    }
+
+    /*
+     * Query lo_get
+     */
+    public static void t5_h_lo_get(int loid)
+            throws Exception {
+        QueryResult result = executeSQL("select convert_from(lo_get(" + loid + ", 4, 3), 'utf-8');", true);
+        String expected = readFile("expected/t5_h_lo_get");
         assertEquals(expected, result.getResult());
     }
 
@@ -429,8 +536,10 @@ public class TestLOMethods {
      *  lo_import
      *  lo_open
      *  lo_seek
+     *  lo_seek64
      *  lowrite
      *  lo_tell
+     *  lo_tell64
      *  lo_unlink
      *  pg_largeobject_metadata catalog table
      *  pg_largeobject catalog table
@@ -447,14 +556,53 @@ public class TestLOMethods {
         t4_d_lowrite(fd);
         // check cursor location
         t4_e_lo_tell(fd);
+        // move cursor
+        t4_f_lo_lseek64(fd);
+        // check cursor location
+        t4_g_lo_tell64(fd);
+        // try truncate
+        t4_h_lo_truncate(fd, 28);
+        lo_truncate64(fd, 27);
         // close descriptor
-        t4_f_lo_close(fd);
-        // verify
-        t4_g_pg_largeobject_metadata(loid);
-        t4_h_pg_largeobject(loid);
-        // clean up
-        t4_i_lo_unlink(loid);
+        t4_i_lo_close(fd);
         // verify
         t4_j_pg_largeobject_metadata(loid);
+        t4_k_pg_largeobject(loid);
+        // clean up
+        t4_l_lo_unlink(loid);
+        // verify
+        t4_m_pg_largeobject_metadata(loid);
+    }
+
+    /*
+     * Basic test that covers i.e.
+     *  lo_from_bytea
+     *  lo_get
+     *  lo_put
+     *  lo_unlink
+     *  pg_largeobject_metadata catalog table
+     *  pg_largeobject catalog table
+     */
+    @Test
+    public void t5()
+            throws Exception {
+        int loid = t5_a_lo_from_bytea();
+        // verify
+        pg_largeobject_metadata(loid, true);
+        pg_largeobject(loid, true);
+        // try to create new large object with same oid
+        t5_d_lo_from_bytea(loid);
+        // try lo_get
+        lo_get(loid, true);
+        // try lo_put
+        t5_f_lo_put(loid);
+        // verify
+        t5_g_pg_largeobject(loid);
+        // try lo_get
+        t5_h_lo_get(loid);
+        // clean up
+        lo_unlink(loid);
+        // verify
+        pg_largeobject_metadata(loid, false);
     }
 }
