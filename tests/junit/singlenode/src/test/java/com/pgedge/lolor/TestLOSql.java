@@ -67,6 +67,26 @@ public class TestLOSql {
     }
 
     /*
+     * Test REVOKE ... ON LARGE OBJECT
+     */
+    public void t4_revoke_on_large_object(int loid)
+            throws Exception {
+        QueryResult result = executeSQL("REVOKE UPDATE ON LARGE OBJECT " + loid + " FROM CURRENT_USER;", true);
+        String expected = readFile("expected/t4_revoke_on_large_object");
+        assertEquals(expected, result.getResult());
+    }
+
+    /*
+     * Test SECURITY LABEL ON LARGE OBJECT ...
+     */
+    public void t5_security_label_on_large_object(int loid)
+            throws Exception {
+        QueryResult result = executeSQL("SECURITY LABEL ON LARGE OBJECT " + loid + " IS 'system_u:object_r:sepgsql_table_t:s0';", true);
+        String expected = readFile("expected/t5_security_label_on_large_object");
+        assertEquals(expected, result.getResult());
+    }
+
+    /*
      * Basic test that covers i.e.
      *  lo_creat
      *  lo_unlink
@@ -99,6 +119,7 @@ public class TestLOSql {
         // clean up
         deleteLargeObject(loid);
     }
+
     /*
      * Basic test that covers i.e.
      *  lo_creat
@@ -106,13 +127,46 @@ public class TestLOSql {
      *  pg_largeobject_metadata catalog table
      *  COMMENT ON LARGE OBJECT
      */
-
     @Test
     public void t3()
             throws Exception {
         int loid = createLargeObject();
         // run test
         t3_comment_on_large_object(loid);
+        // clean up
+        deleteLargeObject(loid);
+    }
+
+    /*
+     * Basic test that covers i.e.
+     *  lo_creat
+     *  lo_unlink
+     *  pg_largeobject_metadata catalog table
+     *  REVOKE ... ON LARGE OBJECT
+     */
+    @Test
+    public void t4()
+            throws Exception {
+        int loid = createLargeObject();
+        // run test
+        t4_revoke_on_large_object(loid);
+        // clean up
+        deleteLargeObject(loid);
+    }
+
+    /*
+     * Basic test that covers i.e.
+     *  lo_creat
+     *  lo_unlink
+     *  pg_largeobject_metadata catalog table
+     *  SECURITY LABEL ON LARGE OBJECT
+     */
+    @Test
+    public void t5()
+            throws Exception {
+        int loid = createLargeObject();
+        // run test
+        t5_security_label_on_large_object(loid);
         // clean up
         deleteLargeObject(loid);
     }
