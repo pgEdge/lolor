@@ -42,6 +42,11 @@ Download and install latest maven package from https://maven.apache.org/download
 
 ### Settings 
 
+There is a need to configure GUC `lolor.node` in `postgresql.conf` e.g.
+```
+lolor.node = 1
+```
+
 Use `test.properties` for test suite settings e.g. database connection, etc.
 
 ### Run test suite
