@@ -186,3 +186,4 @@ CREATE FUNCTION pg_catalog.lo_on_drop_extension()
 CREATE EVENT TRIGGER lo_on_drop_extension
 	ON ddl_command_start WHEN tag IN ('DROP EXTENSION')
 	EXECUTE FUNCTION pg_catalog.lo_on_drop_extension();
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
