@@ -1,0 +1,20 @@
+{
+  "name": "LOLORTests",
+  "version": "1.0.0",
+  "description": "",
+  "main": "lo_methods.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5",
+    "pg-large-object": "^2.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
