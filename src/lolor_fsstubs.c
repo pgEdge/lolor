@@ -55,8 +55,11 @@
 #include "utils/fmgroids.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
+#include "utils/palloc.h"
 #include "utils/snapmgr.h"
+#if PG_VERSION_NUM >= 160000
 #include "varatt.h"
+#endif
 
 #include "lolor.h"
 

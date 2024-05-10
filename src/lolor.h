@@ -51,6 +51,14 @@ extern void lolor_inv_truncate(LargeObjectDesc *obj_desc, int64 len);
 
 /* lolor_fsstubs.c */
 
+#ifndef repalloc0_array
+#define repalloc0(pointer, oldsize, size) \
+	memset((char *) repalloc(pointer, size) + oldsize, 0, (size - oldsize))
+
+#define repalloc0_array(pointer, type, oldcount, count) \
+	((type *) repalloc0(pointer, sizeof(type) * (oldcount), sizeof(type) * (count)))
+#endif
+
 /*
  * Cleanup LOs at xact commit/abort
  */

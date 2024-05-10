@@ -16,10 +16,12 @@
 
 #include "miscadmin.h"
 #include "fmgr.h"
+#include "access/xact.h"
 #include "catalog/namespace.h"
 #include "commands/event_trigger.h"
 #include "executor/spi.h"
 #include "nodes/parsenodes.h"
+#include "nodes/value.h"
 #include "nodes/print.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
@@ -31,6 +33,8 @@
 PG_MODULE_MAGIC;
 
 int32 lolor_node_id = 0;
+
+void	_PG_init(void);
 
 /* keep Oids of the large object catalog. */
 Oid	LOLOR_LargeObjectRelationId = InvalidOid;
@@ -179,7 +183,7 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	}
 	foreach(lc, dropstmt->objects)
 	{
-		String *objname = (String *)lfirst(lc);
+		Node *objname = (Node *) lfirst(lc);
 		
 		if (strcmp(strVal(objname), "lolor") == 0)
 		{
