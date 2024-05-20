@@ -12,6 +12,7 @@ system i.e.
 
 ```
 go get github.com/jackc/pgx/v5
+go get github.com/magiconair/properties
 ```
 
 ### Settings 
@@ -21,12 +22,7 @@ There is a need to configure GUC `lolor.node` in `postgresql.conf` e.g.
 lolor.node = 1
 ```
 
-Set enviornment variable `DATABASE_URL` for database connection string e.g.
-
-```
-# BASH shell
-export DATABASE_URL="postgres://asif:password@localhost:5432/postgres"
-```
+Use `test.properties` for test suite settings e.g. database connection, etc.
 
 ### Run test suite
 
