@@ -9,6 +9,7 @@ CREATE TABLE lolor.pg_largeobject(
 	pageno int NOT NULL,
 	data bytea NOT NULL,
 	PRIMARY KEY(loid,pageno));
+SELECT pg_catalog.pg_extension_config_dump('lolor.pg_largeobject', '');
 
 -- Replace pg_largeobject_metadata
 CREATE TABLE lolor.pg_largeobject_metadata(
@@ -16,6 +17,7 @@ CREATE TABLE lolor.pg_largeobject_metadata(
 	lomowner oid NOT NULL,
 	lomacl aclitem[],
 	PRIMARY KEY(oid));
+SELECT pg_catalog.pg_extension_config_dump('lolor.pg_largeobject_metadata', '');
 
 -- Replace lo_open()
 ALTER FUNCTION pg_catalog.lo_open(Oid, int4)
