@@ -106,7 +106,7 @@ _PG_init(void)
 							NULL,
 							&lolor_node_id,
 							0,
-							1,
+							0,
 							16,
 							PGC_SUSET,
 							0,
