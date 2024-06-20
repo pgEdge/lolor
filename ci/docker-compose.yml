@@ -1,0 +1,52 @@
+version: '3'
+
+services:
+  pgedge-n1:
+    container_name: n1
+    hostname: n1
+    image: pgedgeinc/lolor
+    environment:
+      - HOSTNAME=n1
+      - PEER_NAMES=n2,n3
+      - TZ=America/Toronto
+    env_file:
+      - pgedge.env
+
+  pgedge-n2:
+    container_name: n2
+    hostname: n2
+    image: pgedgeinc/lolor
+    environment:
+      - HOSTNAME=n2
+      - PEER_NAMES=n1,n3
+      - TZ=America/Toronto
+    env_file:
+      - pgedge.env
+
+  pgedge-n3:
+    container_name: n3
+    hostname: n3
+    image: pgedgeinc/lolor
+    environment:
+      - HOSTNAME=n3
+      - PEER_NAMES=n1,n2
+      - TZ=America/Toronto
+    env_file:
+      - pgedge.env
+
+  pgedge-tester:
+    container_name: tester
+    hostname: tester
+    image: pgedgeinc/lolor-tester
+    environment:
+      - HOSTNAME=tester
+      - PEER_NAMES=n1,n2,n3
+      - TZ=America/Toronto
+    env_file:
+      - pgedge.env
+    volumes:
+      - ../:/home/pgedge/lolor
+    depends_on:
+      - pgedge-n1
+      - pgedge-n2
+      - pgedge-n3
