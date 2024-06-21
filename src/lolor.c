@@ -101,6 +101,10 @@ lolor_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 void
 _PG_init(void)
 {
+
+	if (process_shared_preload_libraries_in_progress)
+		elog(ERROR, "lolor extension can not be in shared_preload_libraries");
+
 	DefineCustomIntVariable("lolor.node",
 							"Unique id of current node.",
 							NULL,
