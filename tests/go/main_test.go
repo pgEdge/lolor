@@ -62,13 +62,13 @@ func waitForSync() {
 }
 
 /*
- * Execute the query on the database server
+ * Execute the query on the database server node
  */
-func executeSQL(query string) {
+func executeSQL1(query string, n int) {
 	ctx := context.Background()
-	rows, err := conn.Query(ctx, query)
+	rows, err := conna[n].Query(ctx, query)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to execute query: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Unable to execute query: Node %d, Query %v, Error %v\n", n, query, err)
 		os.Exit(1)
 	}
 
@@ -76,14 +76,24 @@ func executeSQL(query string) {
 }
 
 /*
+ * Execute the query on all database server nodes
+ */
+func executeSQL2(query string) {
+	for i := 0; i < len(conna); i++ {
+		executeSQL1(query, i)
+	}
+}
+
+/*
  * Query pg_largeobject_metadata table
  */
 func pg_largeobject_metadata(c *pgx.Conn, loid uint32) rowPgLargeObjectMetadata {
 	var r rowPgLargeObjectMetadata
+	query := fmt.Sprint("select oid, lomowner from lolor.pg_largeobject_metadata where oid = ", loid, ";")
 	ctx := context.Background()
-	err := c.QueryRow(ctx, fmt.Sprint("select oid, lomowner from lolor.pg_largeobject_metadata where oid = ", loid, ";")).Scan(&r)
+	err := c.QueryRow(ctx, query).Scan(&r)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to execute query: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Unable to execute query: Query %v, Error %v\n", query, err)
 		os.Exit(1)
 	}
 	return r
@@ -94,10 +104,11 @@ func pg_largeobject_metadata(c *pgx.Conn, loid uint32) rowPgLargeObjectMetadata 
  */
 func pg_largeobject(c *pgx.Conn, loid uint32, size int) []byte {
 	data := make([]byte, size)
+	query := fmt.Sprint("select data from lolor.pg_largeobject where loid = ", loid, ";")
 	ctx := context.Background()
-	err := c.QueryRow(ctx, fmt.Sprint("select data from lolor.pg_largeobject where loid = ", loid, ";")).Scan(&data)
+	err := c.QueryRow(ctx, query).Scan(&data)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to execute query: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Unable to execute query: Query %v, Error %v\n", query, err)
 		os.Exit(1)
 	}
 	return data
@@ -137,7 +148,7 @@ func check_pg_largeobject(loid uint32, datain []byte, t *testing.T) {
  */
 func initDB() {
 	createExt := "CREATE EXTENSION IF NOT EXISTS lolor;"
-	executeSQL(createExt)
+	executeSQL2(createExt)
 }
 
 // Perform initializations
