@@ -24,6 +24,34 @@ lolor.node = 1
 
 Use `test.properties` for test suite settings e.g. database connection, etc.
 
+To enable replication of `lolor` large objects, there is a need to add tables
+`lolor.pg_largeobject` and `lolor.pg_largeobject_metadata` to `spock`
+replication set e.g.
+
+Run the following commands to create replication set i.e.
+```
+# All Nodes
+./pgedge spock repset-create lolor_tables_rs test_db
+
+# Node1
+./pgedge spock sub-add-repset sub_n1n2 lolor_tables_rs test_db
+./pgedge spock sub-add-repset sub_n1n3 lolor_tables_rs test_db
+
+# Node2
+./pgedge spock sub-add-repset sub_n2n1 lolor_tables_rs test_db
+./pgedge spock sub-add-repset sub_n2n3 lolor_tables_rs test_db
+
+# Node3
+./pgedge spock sub-add-repset sub_n3n1 lolor_tables_rs test_db
+./pgedge spock sub-add-repset sub_n3n2 lolor_tables_rs test_db
+
+# All Nodes
+# psql -d test_db
+CREATE EXTENSION lolor;
+./pgedge spock repset-add-table lolor_tables_rs 'lolor.pg_largeobject' test_db
+./pgedge spock repset-add-table lolor_tables_rs 'lolor.pg_largeobject_metadata' test_db
+```
+
 ### Run test suite
 
 ```
