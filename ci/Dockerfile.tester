@@ -1,0 +1,21 @@
+FROM golang:1.22.4
+
+RUN apt -y update && \
+    apt -y install \
+    curl sudo python3 python3-pip \
+    wget nodejs npm maven libpq-dev \
+    postgresql-client
+
+RUN pip3 install pygresql jproperties --break-system-packages
+
+RUN useradd -m pgedge -s /bin/bash && \
+    echo pgedge:asdf | chpasswd && \
+    echo "pgedge ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/pgedge
+
+COPY run-tests.sh /home/pgedge
+RUN sudo chmod +x /home/pgedge/run-tests.sh
+
+RUN cd /home/pgedge && git clone https://github.com/pgedge/lolor
+
+WORKDIR /home/pgedge/lolor/tests
+CMD /home/pgedge/run-tests.sh

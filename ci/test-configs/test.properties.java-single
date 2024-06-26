@@ -1,0 +1,10 @@
+# JDBC
+Jdbc.drivers=org.postgresql.Driver
+url=jdbc:postgresql://n1:5432/demo
+username=admin
+password=password
+
+# Test suite Settings
+
+# create lolor extension
+with_lolor_extension=1
