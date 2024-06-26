@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -17,8 +16,8 @@ var conn *pgx.Conn
 var prop *properties.Properties
 var conna [3]*pgx.Conn
 
-// sync up delay in seconds
-var sync_delay int32
+// Node 1 subscriptions
+var n1subs [2]string
 
 // test input data
 var data1 string = "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -56,9 +55,12 @@ func connectPG() {
 	conn = conna[0]
 }
 
-// FIXME: adopt a better syncup method
 func waitForSync() {
-	time.Sleep(time.Duration(sync_delay) * time.Second)
+	for i := 0; i < len(n1subs); i++ {
+		// Wait for subscription to finish synchronization
+		query := fmt.Sprint("SELECT spock.sub_wait_for_sync('", n1subs[i], "');")
+		executeSQL1(query, 0)
+	}
 }
 
 /*
@@ -154,7 +156,8 @@ func initDB() {
 // Perform initializations
 func do_init() {
 	prop = properties.MustLoadFile("test.properties", properties.UTF8)
-	sync_delay = int32(prop.MustGetInt64("sync_delay"))
+	n1subs[0] = string(prop.MustGetString("n1.sub1"))
+	n1subs[1] = string(prop.MustGetString("n1.sub2"))
 	connectPG()
 	initDB()
 }
