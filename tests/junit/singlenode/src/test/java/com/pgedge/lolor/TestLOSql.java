@@ -161,7 +161,9 @@ public class TestLOSql {
      *  pg_largeobject_metadata catalog table
      *  SECURITY LABEL ON LARGE OBJECT
      */
-    @Test
+/*    @Test
+    TODO: Disabling, it require setup to load security label provider
+*/
     public void t5()
             throws Exception {
         int loid = createLargeObject();

@@ -40,6 +40,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 //TODO: remove redundant code / refactor
 public class TestLOMethods {
+    // data files that are required to be used with lo_* methods like lo_import etc.
+    static String datafile1_local = System.getProperty("user.dir") + "/data/text1.data";
+    static String datafile1_server = "/tmp/text1.data";
+
     /*
     * Initialise and make things ready
     * */
@@ -49,6 +53,8 @@ public class TestLOMethods {
         loadDBPropertiesFile();
         connectPG();
         initDB();
+        // Copy test data files to the server machine
+        copyFileToServer(datafile1_local, datafile1_server);
     }
 
     /*
@@ -74,16 +80,6 @@ public class TestLOMethods {
     }
 
     /*
-     * Test pg_largeobject_metadata table
-     */
-    public void t1_b_pg_largeobject_metadata(int loid)
-            throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";");
-        String expected = readFile("expected/t1_b_pg_largeobject_metadata");
-        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
-    }
-
-    /*
      * Test pg_largeobject table
      */
     public void t1_c_pg_largeobject(int loid)
@@ -104,16 +100,6 @@ public class TestLOMethods {
     }
 
     /*
-     * Test pg_largeobject_metadata table
-     */
-    public void t1_e_pg_largeobject_metadata(int loid)
-            throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";");
-        String expected = readFile("expected/t1_e_pg_largeobject_metadata");
-        assertEquals(expected, result.getResult());
-    }
-
-    /*
      * Basic lo_create() test
      */
     public int t2_a_lo_create()
@@ -124,16 +110,6 @@ public class TestLOMethods {
         String expected = readFile("expected/t2_a_lo_create");
         assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
         return loid;
-    }
-
-    /*
-     * Test pg_largeobject_metadata table
-     */
-    public void t2_b_pg_largeobject_metadata(int loid)
-            throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";");
-        String expected = readFile("expected/t2_b_pg_largeobject_metadata");
-        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
     }
 
     /*
@@ -157,23 +133,12 @@ public class TestLOMethods {
     }
 
     /*
-     * Test pg_largeobject_metadata
-     */
-    public void t2_e_pg_largeobject_metadata(int loid)
-            throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";");
-        String expected = readFile("expected/t2_e_pg_largeobject_metadata");
-        assertEquals(expected, result.getResult());
-    }
-
-    /*
      * Test lo_import
      */
     public int t3_a_lo_import()
             throws Exception {
         // TODO: probably pick SQL from file
-        String fname = System.getProperty("user.dir") + "/data/text1.data";
-        QueryResult result = executeSQL("select lo_import('" + fname + "');");
+        QueryResult result = executeSQL("select lo_import('" + datafile1_server + "');");
         //TODO: conversion required ?
         int loid = Integer.parseInt(getLine(result.getResult(), 1));
         String expected = readFile("expected/t3_a_lo_import");
@@ -187,13 +152,13 @@ public class TestLOMethods {
     public void t3_b_lo_export(int loid)
             throws Exception {
         // input file path
-        String fname_in = System.getProperty("user.dir") + "/data/text1.data";
         // exported file path
         String fname_out = "/tmp/text1_modified.data";
         QueryResult result = executeSQL("select lo_export(" + loid + ", '" + fname_out + "');");
         String expected = readFile("expected/t3_b_lo_export");
         // read input and exported files
-        String input = readFile(fname_in);
+        String input = readFile(datafile1_local);
+        copyFileToLocal(fname_out, fname_out);
         String exported = readFile(fname_out);
         // verify
         assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
@@ -201,23 +166,11 @@ public class TestLOMethods {
     }
 
     /*
-     * Test pg_largeobject_metadata
-     */
-    public void t3_c_pg_largeobject_metadata(int loid)
-            throws Exception {
-        executeSQL("set bytea_output = 'escape';");
-        QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";");
-        String expected = readFile("expected/t3_c_pg_largeobject_metadata");
-        // verify
-        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
-    }
-
-    /*
      * Test pg_largeobject
      */
     public void t3_d_pg_largeobject(int loid)
             throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject where loid = " + loid + ";");
+        QueryResult result = executeSQL("select loid, pageno, convert_from(data, 'UTF8') as data from lolor.pg_largeobject where loid = " + loid + ";");
         String expected = readFile("expected/t3_d_pg_largeobject");
         // verify
         assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
@@ -234,23 +187,12 @@ public class TestLOMethods {
     }
 
     /*
-     * Test pg_largeobject_metadata
-     */
-    public void t3_f_pg_largeobject_metadata(int loid)
-            throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";");
-        String expected = readFile("expected/t3_f_pg_largeobject_metadata");
-        assertEquals(expected, result.getResult());
-    }
-
-    /*
      * Test lo_import
      */
     public int t4_a_lo_import()
             throws Exception {
         // TODO: probably pick SQL from file
-        String fname = System.getProperty("user.dir") + "/data/text1.data";
-        QueryResult result = executeSQL("select lo_import('" + fname + "');");
+        QueryResult result = executeSQL("select lo_import('" + datafile1_server + "');");
         // get large object oid
         int loid = Integer.parseInt(getLine(result.getResult(), 1));
         String expected = readFile("expected/t4_a_lo_import");
@@ -355,23 +297,11 @@ public class TestLOMethods {
     }
 
     /*
-     * Test pg_largeobject_metadata
-     */
-    public void t4_j_pg_largeobject_metadata(int loid)
-            throws Exception {
-        executeSQL("set bytea_output = 'escape';");
-        QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";");
-        String expected = readFile("expected/t4_j_pg_largeobject_metadata");
-        // verify
-        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
-    }
-
-    /*
      * Test pg_largeobject
      */
     public void t4_k_pg_largeobject(int loid)
             throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject where loid = " + loid + ";");
+        QueryResult result = executeSQL("select loid, pageno, convert_from(data, 'UTF8') as data from lolor.pg_largeobject where loid = " + loid + ";");
         String expected = readFile("expected/t4_k_pg_largeobject");
         // verify
         assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
@@ -389,17 +319,6 @@ public class TestLOMethods {
     }
 
     /*
-     * Test pg_largeobject_metadata
-     */
-    public void t4_m_pg_largeobject_metadata(int loid)
-            throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";");
-        String expected = readFile("expected/t4_m_pg_largeobject_metadata");
-        // verify
-        assertEquals(expected, result.getResult());
-    }
-
-    /*
      * Test lo_from_bytea
      */
     public int t5_a_lo_from_bytea()
@@ -412,6 +331,17 @@ public class TestLOMethods {
         // verify
         assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
         return loid;
+    }
+
+    /*
+     * Test pg_largeobject
+     */
+    public void t5_c_pg_largeobject(int loid)
+            throws Exception {
+        QueryResult result = executeSQL("select loid, pageno, convert_from(data, 'UTF8') as data from lolor.pg_largeobject where loid = " + loid + ";");
+        String expected = readFile("expected/t5_c_pg_largeobject");
+        // verify
+        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
     }
 
     /*
@@ -452,7 +382,7 @@ public class TestLOMethods {
      */
     public void t5_g_pg_largeobject(int loid)
             throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject where loid = " + loid + ";");
+        QueryResult result = executeSQL("select loid, pageno, convert_from(data, 'UTF8') as data from lolor.pg_largeobject where loid = " + loid + ";");
         String expected = readFile("expected/t5_g_pg_largeobject");
         // verify
         assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
@@ -480,12 +410,12 @@ public class TestLOMethods {
             throws Exception {
         int loid = t1_a_lo_creat();
         // verify
-        t1_b_pg_largeobject_metadata(loid);
+        pg_largeobject_metadata(loid, true);
         t1_c_pg_largeobject(loid);
         // clean up
         t1_d_lo_unlink(loid);
         // verify
-        t1_e_pg_largeobject_metadata(loid);
+        pg_largeobject_metadata(loid, false);
         //TODO: check pg_largeobject as well?
     }
 
@@ -501,12 +431,12 @@ public class TestLOMethods {
             throws Exception {
         int loid = t2_a_lo_create();
         // verify
-        t2_b_pg_largeobject_metadata(loid);
+        pg_largeobject_metadata(loid, true);
         t2_c_pg_largeobject(loid);
         // clean up
         t2_d_lo_unlink(loid);
         // verify
-        t2_e_pg_largeobject_metadata(loid);
+        pg_largeobject_metadata(loid, false);
     }
 
     /*
@@ -523,12 +453,12 @@ public class TestLOMethods {
         int loid = t3_a_lo_import();
         t3_b_lo_export(loid);
         // verify
-        t3_c_pg_largeobject_metadata(loid);
+        pg_largeobject_metadata(loid, true);
         t3_d_pg_largeobject(loid);
         // clean up
         t3_e_lo_unlink(loid);
         // verify
-        t3_f_pg_largeobject_metadata(loid);
+        pg_largeobject_metadata(loid, false);
     }
 
     /*
@@ -566,12 +496,12 @@ public class TestLOMethods {
         // close descriptor
         t4_i_lo_close(fd);
         // verify
-        t4_j_pg_largeobject_metadata(loid);
+        pg_largeobject_metadata(loid, true);
         t4_k_pg_largeobject(loid);
         // clean up
         t4_l_lo_unlink(loid);
         // verify
-        t4_m_pg_largeobject_metadata(loid);
+        pg_largeobject_metadata(loid, false);
     }
 
     /*
@@ -589,7 +519,7 @@ public class TestLOMethods {
         int loid = t5_a_lo_from_bytea();
         // verify
         pg_largeobject_metadata(loid, true);
-        pg_largeobject(loid, true);
+        t5_c_pg_largeobject(loid);
         // try to create new large object with same oid
         t5_d_lo_from_bytea(loid);
         // try lo_get

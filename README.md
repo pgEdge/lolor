@@ -137,3 +137,6 @@ lolor_db=# SELECT
 
 - Native large object functionality cannot be used while using LOLOR extension
 - Native large object migration to LOLOR feature is not available yet (TODO list)
+- The statements `ALTER LARGE OBJECT`, `GRANT ON LARGE OBJECT`,
+    `COMMENT ON LARGE OBJECT` AND `REVOKE ON LARGE OBJECT` don't have support
+    yet (TODO list)
