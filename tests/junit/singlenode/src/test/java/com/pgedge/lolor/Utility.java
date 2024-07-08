@@ -317,27 +317,4 @@ public class Utility {
         pg_largeobject_metadata(loid, false);
         //TODO: check pg_largeobject as well?
     }
-
-    /*
-     * copy file to the database server machine from client
-     */
-    public static void copyFileToServer(String srcPath, String destPath)
-            throws Exception {
-        String dataFileText = readFile(srcPath);
-        QueryResult result = executeSQL("COPY (SELECT $$" + dataFileText + "$$) TO PROGRAM $$sed 's/\\\\n/\\'$'\\n''/g' > " + destPath + "$$", true);
-    }
-
-    /*
-     * copy file to the local machine from server
-     */
-    public static void copyFileToLocal(String srcPath, String destPath)
-            throws Exception {
-        executeSQL("CREATE TEMP TABLE IF NOT EXISTS copyfile_tmp (data text);", true);
-        executeSQL("TRUNCATE copyfile_tmp;", true);
-        executeSQL("COPY copyfile_tmp FROM '" + srcPath + "';", true);
-        QueryResult result = executeSQL("select string_agg(data, E'\\n') as data from copyfile_tmp;", true);
-        StringBuilder sb = new StringBuilder(result.getResult());
-        sb.delete(0, sb.indexOf("\n") + 1);
-        writeFile(destPath, sb.toString());
-    }
 }

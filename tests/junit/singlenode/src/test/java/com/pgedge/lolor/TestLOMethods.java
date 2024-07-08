@@ -40,10 +40,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 //TODO: remove redundant code / refactor
 public class TestLOMethods {
-    // data files that are required to be used with lo_* methods like lo_import etc.
-    static String datafile1_local = System.getProperty("user.dir") + "/data/text1.data";
-    static String datafile1_server = "/tmp/text1.data";
-
     /*
     * Initialise and make things ready
     * */
@@ -53,8 +49,6 @@ public class TestLOMethods {
         loadDBPropertiesFile();
         connectPG();
         initDB();
-        // Copy test data files to the server machine
-        copyFileToServer(datafile1_local, datafile1_server);
     }
 
     /*
@@ -132,13 +126,32 @@ public class TestLOMethods {
         assertEquals(expected, result.getResult());
     }
 
+
+    /*
+     * Test lo_export
+     */
+    public int t3_a_lo_create()
+            throws Exception {
+        // input file path
+        String textFile1 = "data/text1.data";
+        QueryResult result1 = executeSQL("select lo_create(0);");
+        int loid = Integer.parseInt(getLine(result1.getResult(), 1));
+        QueryResult result2 = executeSQL("SELECT lo_open(" + loid + ", x'60000'::int);", false);
+        // get large object file descriptor
+        int fd = Integer.parseInt(getLine(result2.getResult(), 1));
+        String input = readFile(textFile1);
+        QueryResult result3 = executeSQL("SELECT lowrite(" + fd + ", '" + input + "'::bytea);", false);
+        QueryResult result4 = executeSQL("SELECT lo_close(" + fd + ");");
+        return loid;
+    }
+
     /*
      * Test lo_import
      */
-    public int t3_a_lo_import()
+    public int t3_c_lo_import(String infile)
             throws Exception {
         // TODO: probably pick SQL from file
-        QueryResult result = executeSQL("select lo_import('" + datafile1_server + "');");
+        QueryResult result = executeSQL("select lo_import('" + infile + "');");
         //TODO: conversion required ?
         int loid = Integer.parseInt(getLine(result.getResult(), 1));
         String expected = readFile("expected/t3_a_lo_import");
@@ -149,20 +162,13 @@ public class TestLOMethods {
     /*
      * Test lo_export
      */
-    public void t3_b_lo_export(int loid)
+    public void t3_b_lo_export(int loid, String outfile)
             throws Exception {
-        // input file path
         // exported file path
-        String fname_out = "/tmp/text1_modified.data";
-        QueryResult result = executeSQL("select lo_export(" + loid + ", '" + fname_out + "');");
+        QueryResult result = executeSQL("select lo_export(" + loid + ", '" + outfile + "');");
         String expected = readFile("expected/t3_b_lo_export");
-        // read input and exported files
-        String input = readFile(datafile1_local);
-        copyFileToLocal(fname_out, fname_out);
-        String exported = readFile(fname_out);
         // verify
-        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
-        assertEquals(input, exported);
+        assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult().trim());
     }
 
     /*
@@ -189,10 +195,10 @@ public class TestLOMethods {
     /*
      * Test lo_import
      */
-    public int t4_a_lo_import()
+    public int t4_a_lo_import(String inFile)
             throws Exception {
         // TODO: probably pick SQL from file
-        QueryResult result = executeSQL("select lo_import('" + datafile1_server + "');");
+        QueryResult result = executeSQL("select lo_import('" + inFile + "');");
         // get large object oid
         int loid = Integer.parseInt(getLine(result.getResult(), 1));
         String expected = readFile("expected/t4_a_lo_import");
@@ -450,15 +456,19 @@ public class TestLOMethods {
     @Test
     public void t3()
             throws Exception {
-        int loid = t3_a_lo_import();
-        t3_b_lo_export(loid);
+        String fname_remote = "/tmp/text_export.data";
+        int loid = t3_a_lo_create();
+        t3_b_lo_export(loid, fname_remote);
+        int loid_import = t3_c_lo_import(fname_remote);
         // verify
-        pg_largeobject_metadata(loid, true);
-        t3_d_pg_largeobject(loid);
+        pg_largeobject_metadata(loid_import, true);
+        t3_d_pg_largeobject(loid_import);
         // clean up
         t3_e_lo_unlink(loid);
+        t3_e_lo_unlink(loid_import);
         // verify
         pg_largeobject_metadata(loid, false);
+        pg_largeobject_metadata(loid_import, false);
     }
 
     /*
@@ -477,7 +487,8 @@ public class TestLOMethods {
     @Test
     public void t4()
             throws Exception {
-        int loid = t4_a_lo_import();
+        String fname_remote = "/tmp/text_export.data";
+        int loid = t4_a_lo_import(fname_remote);
         // open lo
         int fd = t4_b_lo_open(loid);
         // move cursor
