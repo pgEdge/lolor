@@ -16,21 +16,21 @@ import java.util.Properties;
 //TODO: remove redundant code / refactor, make similar code as class shared with other classes
 public class Utility {
     public static ArrayList<Connection> pgconns = new ArrayList<Connection>();
+    public static ArrayList<String> n1subs = new ArrayList<String>();
 
     private static Properties dbProps;
     private final static String dbPropsFile = "test.properties";
 
-    public static int getSync_delay() {
-        return sync_delay;
+    public static void waitForSync() throws Exception {
+        n1subs.forEach(sub -> {
+            String query = "SELECT spock.sub_wait_for_sync('" + sub + "');";
+            try {
+                executeSQL(0, query);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
-
-    //TODO: better alternate for timeout/sleep based mechenism to allow sync up ?
-    public static void waitForSync() throws InterruptedException {
-        Thread.sleep(sync_delay);
-    }
-    // sync up delay in miliseconds
-    // TODO: put it in properties
-    private static int sync_delay = 4000;
 
     /*
     * Query result
@@ -131,6 +131,8 @@ public class Utility {
                     throw new RuntimeException(e);
                 }
             });
+            n1subs.add(dbProps.getProperty("n1.sub1"));
+            n1subs.add(dbProps.getProperty("n1.sub2"));
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }

@@ -78,12 +78,14 @@ public class Utility {
     public static void connectPG()
             throws Exception {
         try {
-//            Class.forName(dbProps.getProperty("url"));
+            // Class.forName(dbProps.getProperty("url"));
             if (dbProps.getOrDefault("with_lolor_extension", 1).equals("1")) {
-                dbProps.setProperty("options", "-c search_path=lolor,\"$user\",public,pg_catalog");
+                dbProps.setProperty("options", "options=-c%20search_path=lolor,\"$user\",public,pg_catalog");
             }
 
-            pgconn = DriverManager.getConnection(dbProps.getProperty("url"), dbProps);
+            pgconn = DriverManager.getConnection(dbProps.getProperty("url") + "?" + dbProps.getProperty("options"),
+                    dbProps.getProperty("username"),
+                    dbProps.getProperty("password"));
             pgconn.setAutoCommit(false);
         } catch (SQLException e) {
             throw new RuntimeException(e);
@@ -256,7 +258,7 @@ public class Utility {
      */
     public static void pg_largeobject_metadata(int loid, boolean exists)
             throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject_metadata where oid = " + loid + ";", true);
+        QueryResult result = executeSQL("select oid, lomacl from lolor.pg_largeobject_metadata where oid = " + loid + ";", true);
         String expected_file = exists ? "pg_largeobject_metadata_oid_exist" : "pg_largeobject_metadata_oid_not_exist";
         String expected = readFile("expected/" + expected_file);
         assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
@@ -267,7 +269,7 @@ public class Utility {
      */
     public static void pg_largeobject(int loid, boolean exists)
             throws Exception {
-        QueryResult result = executeSQL("select * from pg_largeobject where loid = " + loid + ";");
+        QueryResult result = executeSQL("select * from lolor.pg_largeobject where loid = " + loid + ";");
         String expected_file = exists ? "pg_largeobject_oid_exist" : "pg_largeobject_oid_not_exist";
         String expected = readFile("expected/" + expected_file);
         assertEquals(expected.replace("<xxxx1>", String.valueOf(loid)), result.getResult());
