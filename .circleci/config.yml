@@ -14,7 +14,7 @@ jobs:
       - run:
           name: Run Test Script
           command: |
-            while [ "$(docker inspect -f '{{.State.Running}}' pgedge-tester)" == "true" ]; do
+            while [ "$(docker inspect -f '{{.State.Running}}' tester)" == "true" ]; do
               echo "Waiting for tests to complete..."
               sleep 1
             done
