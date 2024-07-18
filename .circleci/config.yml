@@ -2,6 +2,8 @@ version: 2.1
 
 jobs:
   test:
+    machine:
+      image: ubuntu-2204
     steps:
       - checkout
       - run:
