@@ -1,5 +1,7 @@
 # lolor
 
+[![CircleCI](https://dl.circleci.com/status-badge/img/gh/pgEdge/lolor/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/pgEdge/lolor/tree/main)
+
 lolor is a plugin in replacement for Postgres' Large Objects that makes them compatible with Logical Replication.
 
 PostgreSQL supports large objects as related chunks in a pg_largeobject table, which stores binary and text data. Large objects provide stream-style access to user data stored in a special large-object structure in the catalog. However, replication of these catalog tables requires special handling of large objects. The lolor extension allows for the storage of large objects in non-catalog tables, aiding in replication of large objects.
