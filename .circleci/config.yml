@@ -1,0 +1,27 @@
+version: 2.1
+
+jobs:
+  test:
+    docker:
+      - image: pgedgeinc/lolor
+      - image: pgedgeinc/lolor-tester
+    steps:
+      - checkout
+      - run:
+          name: Run docker containers
+          command: |
+            cd tests/ci
+            docker-compose up -d
+      - run:
+          name: Run Test Script
+          command: |
+            grep -q "ERROR" tests/out.txt && exit 1 || exit 0
+      - store_artifacts:
+          path: test_output.log
+          destination: test_output.log
+
+workflows:
+  version: 2
+  test:
+    jobs:
+      - test
