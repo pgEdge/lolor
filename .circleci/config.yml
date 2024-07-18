@@ -14,7 +14,11 @@ jobs:
       - run:
           name: Run Test Script
           command: |
-            grep -q "ERROR" tests/out.txt && exit 1 || exit 0
+            while [ "$(docker inspect -f '{{.State.Running}}' pgedge-tester)" == "true" ]; do
+              echo "Waiting for tests to complete..."
+              sleep 1
+            done
+            grep -Eq "FAIL|ERROR" tests/out.txt && exit 1 || exit 0
       - store_artifacts:
           path: test_output.log
           destination: test_output.log
