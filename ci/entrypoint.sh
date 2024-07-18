@@ -1,7 +1,7 @@
 #!/bin/bash
 #set -e
 
-. /home/pgedge/pgedge/pg16/pg16.env
+source /home/pgedge/pgedge/pg16/pg16.env
 cd /home/pgedge/pgedge
 #
 ./pgedge start
@@ -39,16 +39,14 @@ done
 ./pgedge spock sub-add-repset sub_${peer_names[1]}$HOSTNAME demo_replication_set demo
 
 psql -U admin -d demo -h /tmp <<_EOF_
-drop extension lolor; 
+drop extension lolor;
 create extension lolor; 
 alter system set lolor.node to ${HOSTNAME: -1};
 _EOF_
 
-#psql -U admin -h /tmp -d demo -c "select spock.repset_add_all_tables('demo_replication_set', '{public}');"
-
+cd /home/pgedge/pgedge
 ./pgedge spock repset-add-table demo_replication_set 'lolor.pg_largeobject' demo
 ./pgedge spock repset-add-table demo_replication_set 'lolor.pg_largeobject_metadata' demo
-
 
 ./pgedge stop
 

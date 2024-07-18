@@ -6,6 +6,9 @@ n1.url=jdbc:postgresql://n1:5432/demo
 n1.username=admin
 n1.password=password
 
+n1.sub1=sub_n2n1
+n1.sub2=sub_n3n1
+
 # Node 2
 n2.url=jdbc:postgresql://n2:5432/demo
 n2.username=admin
