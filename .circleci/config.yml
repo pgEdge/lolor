@@ -2,15 +2,12 @@ version: 2.1
 
 jobs:
   test:
-    docker:
-      - image: pgedgeinc/lolor
-      - image: pgedgeinc/lolor-tester
     steps:
       - checkout
       - run:
           name: Run docker containers
           command: |
-            cd tests/ci
+            cd ci
             docker-compose up -d
       - run:
           name: Run Test Script
