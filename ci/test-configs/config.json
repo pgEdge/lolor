@@ -1,0 +1,7 @@
+{
+    "user": "admin",
+    "host": "n1",
+    "database": "demo",
+    "password": "password",
+    "port": 5432
+}

@@ -1,0 +1,26 @@
+FROM rockylinux:9
+
+RUN dnf -y  --allowerasing install \
+    curl sudo python3 \
+    openssh-server openssh-clients \
+    make gcc clang llvm
+
+RUN useradd -m pgedge -s /bin/bash && \
+    echo pgedge:asdf | chpasswd && \
+    echo "pgedge ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/pgedge
+
+USER pgedge
+WORKDIR /home/pgedge
+
+RUN ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 && \
+    cat ~/.ssh/*.pub >> ~/.ssh/authorized_keys
+
+RUN curl -fsSL https://pgedge-download.s3.amazonaws.com/REPO/install.py > /home/pgedge/install.py
+RUN sudo -u pgedge python3 /home/pgedge/install.py
+RUN cd pgedge && ./pgedge setup -U admin -P password -d demo --pg 16 && \
+    ./pgedge install lolor
+
+COPY entrypoint.sh /home/pgedge
+RUN sudo chmod +x /home/pgedge/entrypoint.sh
+
+CMD /home/pgedge/entrypoint.sh

@@ -1,0 +1,77 @@
+version: '3'
+
+services:
+  pgedge-n1:
+    container_name: n1
+    hostname: n1
+    image: pgedgeinc/lolor
+    environment:
+      - HOSTNAME=n1
+      - PEER_NAMES=n2,n3
+      - TZ=America/Toronto
+    volumes:
+      - ../:/home/pgedge/lolor
+    env_file:
+      - pgedge.env
+    healthcheck:
+      test: ["CMD-SHELL", "source /home/pgedge/pgedge/pg16/pg16.env && psql -t -U admin -d demo -c 'show lolor.node;' | grep -qE '[1-3]'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  pgedge-n2:
+    container_name: n2
+    hostname: n2
+    image: pgedgeinc/lolor
+    environment:
+      - HOSTNAME=n2
+      - PEER_NAMES=n1,n3
+      - TZ=America/Toronto
+    volumes:
+      - ../:/home/pgedge/lolor
+    env_file:
+      - pgedge.env
+    healthcheck:
+      test: ["CMD-SHELL", "source /home/pgedge/pgedge/pg16/pg16.env && psql -t -U admin -d demo -c 'show lolor.node;' | grep -qE '[1-3]'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgedge-n3:
+    container_name: n3
+    hostname: n3
+    image: pgedgeinc/lolor
+    environment:
+      - HOSTNAME=n3
+      - PEER_NAMES=n1,n2
+      - TZ=America/Toronto
+    volumes:
+      - ../:/home/pgedge/lolor
+    env_file:
+      - pgedge.env
+    healthcheck:
+      test: ["CMD-SHELL", "source /home/pgedge/pgedge/pg16/pg16.env && psql -t -U admin -d demo -c 'show lolor.node;' | grep -qE '[1-3]'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgedge-tester:
+    container_name: tester
+    hostname: tester
+    image: pgedgeinc/lolor-tester
+    environment:
+      - HOSTNAME=tester
+      - PEER_NAMES=n1,n2,n3
+      - TZ=America/Toronto
+    env_file:
+      - pgedge.env
+    volumes:
+      - ../:/home/pgedge/lolor
+    depends_on:
+      pgedge-n1:
+        condition: service_healthy
+      pgedge-n2:
+        condition: service_healthy
+      pgedge-n3:
+        condition: service_healthy
