@@ -1,178 +1,242 @@
--- Basic checks
-\set VERBOSITY terse
-LOAD 'lolor';
-SET lolor.node = 1;
-CREATE EXTENSION lolor;
-SELECT lo_creat(-1) AS loid \gset
-SELECT lo_from_bytea(:loid, 'Example large object'); -- ERROR
-ERROR:  duplicate key value violates unique constraint "pg_largeobject_metadata_pkey"
-BEGIN;
-SELECT lo_open(:loid, x'60000'::int) AS fd \gset
-SELECT lowrite(:fd, 'Example large object');
- lowrite 
----------
-      20
-(1 row)
-
-SELECT lo_close(:fd);
- lo_close 
-----------
-        0
-(1 row)
-
-END;
-SELECT count(*) FROM pg_largeobject;
- count 
--------
-     0
-(1 row)
-
-SELECT count(*) FROM lolor.pg_largeobject;
- count 
--------
-     1
-(1 row)
-
--- Check that the LO is accessible.
-BEGIN;
-SELECT lo_open(:loid, 262144) AS fd \gset
-SELECT convert_from(loread(:fd, 1024), 'UTF8');
-     convert_from     
-----------------------
- Example large object
-(1 row)
-
-SELECT lo_close(:fd);
- lo_close 
-----------
-        0
-(1 row)
-
-END;
--- Force the oid change for the indexes
-REINDEX INDEX CONCURRENTLY lolor.pg_largeobject_pkey;
-REINDEX INDEX CONCURRENTLY lolor.pg_largeobject_metadata_pkey;
-BEGIN;
-SELECT lo_open(:loid, 262144) AS fd \gset
-SELECT convert_from(loread(:fd, 1024), 'UTF8');
-     convert_from     
-----------------------
- Example large object
-(1 row)
-
-SELECT lo_close(:fd);
- lo_close 
-----------
-        0
-(1 row)
-
-END;
-DROP EXTENSION lolor;
--- Check extension upgrade
-CREATE EXTENSION lolor VERSION '1.0';
-SELECT lo_creat(-1) AS loid \gset
-ALTER EXTENSION lolor UPDATE TO '1.2.1';
-BEGIN;
-SELECT lo_open(:loid, x'60000'::int) AS fd \gset
-SELECT lowrite(:fd, 'Example large object');
- lowrite 
----------
-      20
-(1 row)
-
-END;
-ALTER EXTENSION lolor UPDATE TO '1.2.2';
-ALTER EXTENSION lolor UPDATE TO '1.2.3';
-BEGIN;
-SELECT lo_open(:loid, 262144) AS fd \gset
-SELECT convert_from(loread(:fd, 1024), 'UTF8');
-     convert_from     
-----------------------
- Example large object
-(1 row)
-
-END;
 --
--- Basic checks for enable/disable routines.
+-- lolor: large objects for logical replication
 --
-SELECT lolor.enable(); -- ERROR
-NOTICE:  lolor still not disabled
- enable 
---------
- f
+-- Needs a server patched with the lolor core patch and started with
+--   shared_preload_libraries = 'lolor'
+--   lolor.node = 3
+--   wal_level = logical
+-- and test_decoding installed.
+--
+-- Without the extension the large object catalogs are not decoded.
+SELECT 'init' FROM pg_create_logical_replication_slot('lolor_slot', 'test_decoding');
+ ?column? 
+----------
+ init
 (1 row)
 
-SELECT lo_from_bytea(1, 'Example large object stored in lolor LO storage');
- lo_from_bytea 
----------------
-             1
+SELECT lo_create(900001) AS before_extension;
+ before_extension 
+------------------
+           900001
 (1 row)
 
-SELECT lolor.disable();
- disable 
----------
- t
+SELECT count(*) AS decoded_before_extension
+  FROM pg_logical_slot_get_changes('lolor_slot', NULL, NULL)
+ WHERE data !~ '^(BEGIN|COMMIT)';
+ decoded_before_extension 
+--------------------------
+                        0
 (1 row)
 
-SELECT lo_open(1, 262144); -- 'not found' ERROR
-ERROR:  large object 1 does not exist
-SELECT lo_from_bytea(2, 'Example large object stored in built-in LO storage');
- lo_from_bytea 
----------------
-             2
+SELECT lo_unlink(900001);
+ lo_unlink 
+-----------
+         1
 (1 row)
 
--- We should see the object
-SELECT lolor.enable();
- enable 
---------
- t
+SELECT count(*) AS decoded_unlink_before_extension
+  FROM pg_logical_slot_get_changes('lolor_slot', NULL, NULL)
+ WHERE data !~ '^(BEGIN|COMMIT)';
+ decoded_unlink_before_extension 
+---------------------------------
+                               0
 (1 row)
-
-SELECT lo_open(2, 262144); -- 'not found' ERROR
-ERROR:  large object 2 does not exist
-BEGIN;
-SELECT lo_open(1, 262144) AS fd \gset
-SELECT convert_from(loread(:fd, 1024), 'UTF8'); -- OK, see the object
-                  convert_from                   
--------------------------------------------------
- Example large object stored in lolor LO storage
-(1 row)
-
-END;
--- To be sure that the behaviour is repeatable
-SELECT lolor.disable();
- disable 
----------
- t
-(1 row)
-
-SELECT lolor.enable();
- enable 
---------
- t
-(1 row)
-
--- Check that no tails existing after the extension drop in both enabled and
--- disabled states.
-DROP EXTENSION lolor;
-SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
-  'lolor_lo_open');
- oid | proname 
------+---------
-(0 rows)
 
 CREATE EXTENSION lolor;
-SELECT lolor.disable();
- disable 
+-- The extension gives both catalogs a replica identity ...
+SELECT relname, relreplident FROM pg_class
+ WHERE oid IN ('pg_catalog.pg_largeobject'::regclass,
+               'pg_catalog.pg_largeobject_metadata'::regclass)
+ ORDER BY relname;
+         relname         | relreplident 
+-------------------------+--------------
+ pg_largeobject          | d
+ pg_largeobject_metadata | d
+(2 rows)
+
+SELECT lolor.replication_enabled();
+ replication_enabled 
+---------------------
+ t
+(1 row)
+
+-- ... and the setting stays confined to the function that made it.
+SHOW allow_system_table_mods;
+ allow_system_table_mods 
+-------------------------
+ off
+(1 row)
+
+-- Generated OIDs carry the node id in the low bits.
+SHOW lolor.node;
+ lolor.node 
+------------
+ 3
+(1 row)
+
+SELECT lo_create(0)::bigint & 15 AS node_bits_lo_create;
+ node_bits_lo_create 
+---------------------
+                   3
+(1 row)
+
+SELECT lo_creat(-1)::bigint & 15 AS node_bits_lo_creat;
+ node_bits_lo_creat 
+--------------------
+                  3
+(1 row)
+
+SELECT lo_from_bytea(0, 'x'::bytea)::bigint & 15 AS node_bits_lo_from_bytea;
+ node_bits_lo_from_bytea 
+-------------------------
+                       3
+(1 row)
+
+-- The OIDs of different calls differ, and none is zero.
+SELECT count(DISTINCT o) = 50 AS distinct_oids, bool_and(o <> 0) AS valid_oids
+  FROM (SELECT lo_create(0)::bigint AS o FROM generate_series(1, 50)) s;
+ distinct_oids | valid_oids 
+---------------+------------
+ t             | t
+(1 row)
+
+-- Explicitly requested OIDs are used as given.
+SELECT lo_create(900002);
+ lo_create 
+-----------
+    900002
+(1 row)
+
+SELECT lo_create(900002);
+ERROR:  duplicate key value violates unique constraint "pg_largeobject_metadata_oid_index"
+DETAIL:  Key (oid)=(900002) already exists.
+-- Discard what the above has produced.
+SELECT count(*) > 0 AS has_changes
+  FROM pg_logical_slot_get_changes('lolor_slot', NULL, NULL);
+ has_changes 
+-------------
+ t
+(1 row)
+
+-- Every kind of change to a large object is decoded.
+SELECT lo_create(900003);
+ lo_create 
+-----------
+    900003
+(1 row)
+
+SELECT lowrite(lo_open(900003, 131072), 'hello'::bytea);
+ lowrite 
 ---------
+       5
+(1 row)
+
+SELECT lowrite(lo_open(900003, 131072), 'J'::bytea);
+ lowrite 
+---------
+       1
+(1 row)
+
+SELECT lo_truncate(lo_open(900003, 131072), 1);
+ lo_truncate 
+-------------
+           0
+(1 row)
+
+SELECT lo_unlink(900003);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT data FROM pg_logical_slot_get_changes('lolor_slot', NULL, NULL)
+ WHERE data !~ '^(BEGIN|COMMIT)';
+                                                   data                                                    
+-----------------------------------------------------------------------------------------------------------
+ table pg_catalog.pg_largeobject_metadata: INSERT: oid[oid]:900003 lomowner[oid]:10 lomacl[aclitem[]]:null
+ table pg_catalog.pg_largeobject: INSERT: loid[oid]:900003 pageno[integer]:0 data[bytea]:'\x68656c6c6f'
+ table pg_catalog.pg_largeobject: UPDATE: loid[oid]:900003 pageno[integer]:0 data[bytea]:'\x4a656c6c6f'
+ table pg_catalog.pg_largeobject: UPDATE: loid[oid]:900003 pageno[integer]:0 data[bytea]:'\x4a'
+ table pg_catalog.pg_largeobject_metadata: DELETE: oid[oid]:900003
+ table pg_catalog.pg_largeobject: DELETE: loid[oid]:900003 pageno[integer]:0
+(6 rows)
+
+-- Only a superuser may change the setting, and it can be applied again.
+CREATE ROLE lolor_regress_user;
+GRANT USAGE ON SCHEMA lolor TO lolor_regress_user;
+SET ROLE lolor_regress_user;
+SELECT lolor.set_replica_identity(false);
+ERROR:  permission denied for function set_replica_identity
+RESET ROLE;
+REVOKE USAGE ON SCHEMA lolor FROM lolor_regress_user;
+DROP ROLE lolor_regress_user;
+SELECT lolor.set_replica_identity(true);
+ set_replica_identity 
+----------------------
+ 
+(1 row)
+
+SELECT lolor.replication_enabled();
+ replication_enabled 
+---------------------
+ t
+(1 row)
+
+-- The node id cannot change on a running server.
+SET lolor.node = 5;
+ERROR:  parameter "lolor.node" cannot be changed without restarting the server
+-- Dropping the extension switches decoding off again ...
+DROP EXTENSION lolor;
+SELECT relname, relreplident FROM pg_class
+ WHERE oid IN ('pg_catalog.pg_largeobject'::regclass,
+               'pg_catalog.pg_largeobject_metadata'::regclass)
+ ORDER BY relname;
+         relname         | relreplident 
+-------------------------+--------------
+ pg_largeobject          | n
+ pg_largeobject_metadata | n
+(2 rows)
+
+SELECT lo_create(900004);
+ lo_create 
+-----------
+    900004
+(1 row)
+
+SELECT lo_unlink(900004);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT count(*) AS decoded_after_drop
+  FROM pg_logical_slot_get_changes('lolor_slot', NULL, NULL)
+ WHERE data !~ '^(BEGIN|COMMIT)';
+ decoded_after_drop 
+--------------------
+                  0
+(1 row)
+
+-- ... and the extension can be created again.
+CREATE EXTENSION lolor;
+SELECT lolor.replication_enabled();
+ replication_enabled 
+---------------------
  t
 (1 row)
 
 DROP EXTENSION lolor;
-SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
-  'lolor_lo_open');
- oid | proname 
------+---------
-(0 rows)
+-- Clean up.
+SELECT pg_drop_replication_slot('lolor_slot');
+ pg_drop_replication_slot 
+--------------------------
+ 
+(1 row)
+
+SELECT count(lo_unlink(oid)) AS leftover_large_objects
+  FROM pg_largeobject_metadata;
+ leftover_large_objects 
+------------------------
+                     54
+(1 row)
 

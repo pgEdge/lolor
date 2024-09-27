@@ -3,15 +3,12 @@
 MODULE_big = lolor
 
 EXTENSION = lolor
-DATA = lolor--1.0.sql \
-	   lolor--1.0--1.2.1.sql lolor--1.2.1--1.2.2.sql \
-	   lolor--1.2.2--1.2.3.sql
-PGFILEDESC = "lolor - drop in large objects replacement for logical replication"
+DATA = lolor--2.0.sql
+PGFILEDESC = "lolor - large objects for logical replication"
 
-OBJS = src/lolor.o src/lolor_fsstubs.o src/lolor_inv_api.o src/lolor_largeobject.o
+OBJS = src/lolor.o
 
 REGRESS = lolor
-TAP_TESTS = 1
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config

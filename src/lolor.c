@@ -1,255 +1,270 @@
 /*-------------------------------------------------------------------------
- * lolor.c
- *	  PostgreSQL definitions for Large Objects for logical replication.
  *
- * Copyright (c) 2022-2025, pgEdge, Inc.
+ * lolor.c
+ *	  Large objects for logical replication.
+ *
+ * PostgreSQL stores large objects in the pg_largeobject and
+ * pg_largeobject_metadata catalogs, which logical decoding ignores, and it
+ * allocates their OIDs from a counter that is local to the node.  With a
+ * patched server, this module supplies the two remaining pieces:
+ *
+ *	- an OID allocator that cannot collide across nodes (via the
+ *	  LargeObjectNewOid_hook), and
+ *
+ *	- an event trigger that undoes the extension's setup on DROP EXTENSION.
+ *	  (The setup itself, giving the large object catalogs a replica identity so
+ *	  that the server logs their changes, is done by the install script.)
+ *
+ * The native lo_* functions are used unchanged.
+ *
+ * Copyright (c) 2022-2026, pgEdge, Inc.
  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	contrib/lolor/src/lolor.c
+ *	  contrib/lolor/src/lolor.c
  *
  *-------------------------------------------------------------------------
  */
-
 #include "postgres.h"
 
-#include "miscadmin.h"
-#include "fmgr.h"
-#include "access/xact.h"
-#include "catalog/namespace.h"
+#include "access/genam.h"
+#include "access/skey.h"
+#include "access/stratnum.h"
+#include "access/transam.h"
 #include "commands/event_trigger.h"
 #include "executor/spi.h"
+#include "fmgr.h"
+#include "miscadmin.h"
 #include "nodes/parsenodes.h"
 #include "nodes/value.h"
-#include "nodes/print.h"
-#include "utils/builtins.h"
-#include "utils/inval.h"
+#include "utils/fmgroids.h"
 #include "utils/guc.h"
 #include "utils/rel.h"
-#include "utils/lsyscache.h"
 
 #include "lolor.h"
 
 PG_MODULE_MAGIC;
 
-int32 lolor_node_id = 0;
-
-void	_PG_init(void);
-
-/* keep Oids of the large object catalog. */
-static Oid	LOLOR_LargeObjectRelationId = InvalidOid;
-static Oid	LOLOR_LargeObjectLOidPNIndexId = InvalidOid;
-static Oid	LOLOR_LargeObjectMetadataRelationId = InvalidOid;
-static Oid	LOLOR_LargeObjectMetadataOidIndexId = InvalidOid;
-
 PG_FUNCTION_INFO_V1(lolor_on_drop_extension);
 
-static Oid
-get_lobj_table_oid(const char *table)
-{
-	Oid			reloid;
-	Oid			nspoid;
-
-	nspoid = get_namespace_oid(EXTENSION_NAME, false);
-	reloid = get_relname_relid(table, nspoid);
-	if (reloid == InvalidOid)
-		elog(ERROR, "cache lookup failed for relation %s.%s",
-			 EXTENSION_NAME, table);
-
-	return reloid;
-}
-
-Oid
-get_LOLOR_LargeObjectRelationId()
-{
-	if (!OidIsValid(LOLOR_LargeObjectRelationId))
-		LOLOR_LargeObjectRelationId = get_lobj_table_oid(LOLOR_LARGEOBJECT_CATALOG);
-
-	return LOLOR_LargeObjectRelationId;
-}
-
-Oid
-get_LOLOR_LargeObjectLOidPNIndexId()
-{
-	if (!OidIsValid(LOLOR_LargeObjectLOidPNIndexId))
-		LOLOR_LargeObjectLOidPNIndexId = get_lobj_table_oid(LOLOR_LARGEOBJECT_PKEY);
-
-	return LOLOR_LargeObjectLOidPNIndexId;
-}
-
-Oid
-get_LOLOR_LargeObjectMetadataRelationId()
-{
-	if (!OidIsValid(LOLOR_LargeObjectMetadataRelationId))
-		LOLOR_LargeObjectMetadataRelationId = get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA);
-
-	return LOLOR_LargeObjectMetadataRelationId;
-}
-
-Oid
-get_LOLOR_LargeObjectMetadataOidIndexId()
-{
-	if (!OidIsValid(LOLOR_LargeObjectMetadataOidIndexId))
-		LOLOR_LargeObjectMetadataOidIndexId = get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA_PKEY);
-
-	return LOLOR_LargeObjectMetadataOidIndexId;
-}
-
-static void
-lolor_xact_callback(XactEvent event, void *arg)
-{
-	switch (event)
-	{
-		case XACT_EVENT_COMMIT:
-		case XACT_EVENT_PARALLEL_COMMIT:
-		case XACT_EVENT_PREPARE:
-			AtEOXact_LOLOR_LargeObject(true);
-			break;
-		case XACT_EVENT_ABORT:
-		case XACT_EVENT_PARALLEL_ABORT:
-			AtEOXact_LOLOR_LargeObject(false);
-			break;
-		default:
-			break;
-	}
-}
-
-static void
-lolor_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
-						 SubTransactionId parentSubid, void *arg)
-{
-	switch (event)
-	{
-		case SUBXACT_EVENT_COMMIT_SUB:
-			AtEOSubXact_LOLOR_LargeObject(true, mySubid, parentSubid);
-			break;
-		case SUBXACT_EVENT_ABORT_SUB:
-			AtEOSubXact_LOLOR_LargeObject(false, mySubid, parentSubid);
-			break;
-		default:
-			break;
-	}
-}
+#define LOLOR_EXTENSION_NAME	"lolor"
 
 /*
- * For the sake of performance, make it simple
+ * Parameters controlling when LolorNewOid() reports that it is struggling to
+ * find an unused OID.  See GetNewOidWithIndex() for the rationale.
  */
-static void
-relcache_invalidate_callback(Datum arg, Oid reloid)
-{
-	LOLOR_LargeObjectRelationId = InvalidOid;
-	LOLOR_LargeObjectLOidPNIndexId = InvalidOid;
-	LOLOR_LargeObjectMetadataRelationId = InvalidOid;
-	LOLOR_LargeObjectMetadataOidIndexId = InvalidOid;
-}
+#define GETNEWOID_LOG_THRESHOLD			1000000
+#define GETNEWOID_LOG_MAX_INTERVAL		128000000
+
+int			lolor_node_id = 0;
+
+void		_PG_init(void);
+
+static Oid	LolorNewOid(Relation relation, Oid indexId, AttrNumber oidcolumn);
 
 /*
- * Entry point for this module.
+ * Module load callback.
+ *
+ * The library must be loaded at server start, so that the hook is installed in
+ * every backend (otherwise a session that never touched lolor would hand out
+ * native OIDs, which can collide across nodes) and so that lolor.node cannot
+ * change while the server runs.
  */
 void
 _PG_init(void)
 {
+	const char *configured;
+
+	if (!process_shared_preload_libraries_in_progress)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("lolor must be loaded via \"shared_preload_libraries\"")));
+
+	/*
+	 * An out-of-range value is only a warning to the GUC machinery, which then
+	 * falls back to "not set".  Refuse it here, while it is still a string.
+	 */
+	configured = GetConfigOption("lolor.node", true, false);
+	if (configured != NULL)
+	{
+		char	   *end;
+		long		value;
+
+		errno = 0;
+		value = strtol(configured, &end, 10);
+		if (errno != 0 || end == configured || *end != '\0' ||
+			value < 0 || value > LOLOR_MAX_NODE_ID)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid value \"%s\" for parameter \"lolor.node\"",
+							configured),
+					 errhint("Use a value between 1 and %d.",
+							 LOLOR_MAX_NODE_ID)));
+	}
+
 	DefineCustomIntVariable("lolor.node",
-							"Unique id of current node.",
-							NULL,
+							"Unique id of this node, used to generate large object OIDs.",
+							"Every node of a replication cluster needs its own value, "
+							"as it keeps the OIDs generated on different nodes apart.",
 							&lolor_node_id,
 							0,
 							0,
-							16,
-							PGC_SUSET,
+							LOLOR_MAX_NODE_ID,
+							PGC_POSTMASTER,
 							0,
 							NULL, NULL, NULL);
 
-	/* register transaction callbacks for cleanup. */
-	RegisterXactCallback(lolor_xact_callback, NULL);
-	RegisterSubXactCallback(lolor_subxact_callback, NULL);
+	MarkGUCPrefixReserved("lolor");
 
-	/*
-	 * Something may change object ID accidentially (REINDEX is a good example).
-	 * So, it is necessary to invalidate cache of Oids.
-	 */
-	CacheRegisterRelcacheCallback(relcache_invalidate_callback, (Datum) 0);
+	if (LargeObjectNewOid_hook != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("another module already provides large object OIDs")));
+
+	LargeObjectNewOid_hook = LolorNewOid;
+}
+
+/*
+ * LolorNewOid
+ *		Generate an OID for a new large object that is unique within the given
+ *		relation, and cannot be generated by any other node.
+ *
+ * The low LOLOR_NODE_ID_BITS bits hold lolor.node.  The rest is the counter
+ * value from GetNewObjectId(), reduced to the bits that remain.  Because that
+ * reduction wraps around, an OID that is still in use locally may come up
+ * again, so we check the relation for it, like GetNewOidWithIndex() does, and
+ * draw again if so.  Other nodes cannot interfere, thanks to the node id.
+ *
+ * The arguments, and what the result must satisfy, are those of
+ * GetNewOidWithIndex().
+ */
+static Oid
+LolorNewOid(Relation relation, Oid indexId, AttrNumber oidcolumn)
+{
+	Oid			newOid;
+	SysScanDesc scan;
+	ScanKeyData key;
+	bool		collides;
+	uint64		retries = 0;
+	uint64		retries_before_log = GETNEWOID_LOG_THRESHOLD;
+
+	if (lolor_node_id == 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_CONFIG_FILE_ERROR),
+				 errmsg("lolor.node is not set"),
+				 errhint("Set \"lolor.node\" to a value between 1 and %d that is unique among the nodes of the cluster, and restart the server.",
+						 LOLOR_MAX_NODE_ID)));
+
+	do
+	{
+		uint32		counter;
+
+		CHECK_FOR_INTERRUPTS();
+
+		counter = GetNewObjectId() % (UINT32_C(1) << LOLOR_COUNTER_BITS);
+
+		/* keep clear of zero, so that the result is a valid OID on any node */
+		if (counter == 0)
+			counter = 1;
+
+		newOid = (counter << LOLOR_NODE_ID_BITS) | (uint32) lolor_node_id;
+
+		ScanKeyInit(&key,
+					oidcolumn,
+					BTEqualStrategyNumber, F_OIDEQ,
+					ObjectIdGetDatum(newOid));
+
+		/* SnapshotAny: also avoid OIDs of deleted-but-not-yet-vacuumed rows */
+		scan = systable_beginscan(relation, indexId, true,
+								  SnapshotAny, 1, &key);
+		collides = HeapTupleIsValid(systable_getnext(scan));
+		systable_endscan(scan);
+
+		/*
+		 * Don't spin silently if the OID space is nearly exhausted.  Log with
+		 * exponentially growing intervals, as GetNewOidWithIndex() does, to
+		 * keep the server log from filling up.
+		 */
+		if (retries >= retries_before_log)
+		{
+			ereport(LOG,
+					(errmsg("still searching for an unused OID in relation \"%s\"",
+							RelationGetRelationName(relation)),
+					 errdetail_plural("OID candidates have been checked %llu time, but no unused OID has been found yet.",
+									  "OID candidates have been checked %llu times, but no unused OID has been found yet.",
+									  retries,
+									  (unsigned long long) retries)));
+
+			if (retries_before_log * 2 <= GETNEWOID_LOG_MAX_INTERVAL)
+				retries_before_log *= 2;
+			else
+				retries_before_log += GETNEWOID_LOG_MAX_INTERVAL;
+		}
+
+		retries++;
+	} while (collides);
+
+	/* If we complained about the search, also report that it ended. */
+	if (retries > GETNEWOID_LOG_THRESHOLD)
+		ereport(LOG,
+				(errmsg_plural("new OID has been assigned in relation \"%s\" after %llu retry",
+							   "new OID has been assigned in relation \"%s\" after %llu retries",
+							   retries,
+							   RelationGetRelationName(relation),
+							   (unsigned long long) retries)));
+
+	return newOid;
 }
 
 /*
  * lolor_on_drop_extension
+ *		Event trigger on DROP EXTENSION that undoes what the install script
+ *		did to the large object catalogs.
  *
- * 	In order to be a drop-in replacement for the PostgreSQL built
- * 	in large object access functions, we must replace them with
- * 	our own ones. We do that in the extension's install script
- * 	by renaming the build-in ones to <funcname>_orig and then
- * 	creating our versions of them. The PostgreSQL system has no
- * 	mechanism to invoke a cleanup or uninstall script on DROP
- * 	EXTENSION. We therefore must do the cleanup in an event trigger.
- *	However only C-Language event triggers that fire on
- *	ddl_command_start have access to the list of object that get
- *	dropped.
+ * PostgreSQL has no uninstall script for extensions.  The trigger fires at
+ * ddl_command_start, when the DROP statement is still available to inspect
+ * and lolor's own objects, including lolor.set_replica_identity(), still
+ * exist.  That the statement is only visible to a C function is the reason
+ * this trigger is not written in SQL.  If the DROP then fails, this
+ * transaction's changes are rolled back along with it.
  *
- *	We cannot drop our own functions here as the dependencies of
- *	the extension itself won't allow that. Likewise we cannot
- *	drop the original PostgreSQL functions because the PostgreSQL
- *	system depends on them. But we can get around that with
- *	renaming (which makes no sense).
+ * Large objects stay where they are, in the native catalogs.  After the DROP,
+ * the server stops logging changes to them, as it does without lolor.
  */
 Datum
 lolor_on_drop_extension(PG_FUNCTION_ARGS)
 {
-	EventTriggerData   *trigdata;
-	DropStmt		   *dropstmt;
-	ListCell		   *lc;
-	bool				has_lolor_objs = false;
+	EventTriggerData *trigdata;
+	DropStmt   *dropstmt;
+	ListCell   *lc;
 
-	/* Make sure we are called as an event trigger */
 	if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
 		elog(ERROR, "not fired by event trigger manager");
 
-	/* Make sure we have a parsetree and that this is for a DROP EXTENSION */
 	trigdata = (EventTriggerData *) fcinfo->context;
-	if (trigdata->parsetree == NULL)
-	{
-		elog(LOG, "lo_on_drop_extension(): parsetree = NULL");
-		PG_RETURN_NULL();
-	}
 
-	/*
-	 * Check that this is DROP EXTENSION lolor
-	 */
-	if (!IsA(trigdata->parsetree, DropStmt))
-	{
-		elog(WARNING, "lo_on_drop_extension(): not a DropStmt");
+	if (trigdata->parsetree == NULL || !IsA(trigdata->parsetree, DropStmt))
 		PG_RETURN_NULL();
-	}
-	dropstmt = (DropStmt *)trigdata->parsetree;
+
+	dropstmt = (DropStmt *) trigdata->parsetree;
 	if (dropstmt->removeType != OBJECT_EXTENSION)
-	{
-		elog(WARNING, "lo_on_drop_extension(): not a DropStmt for extension");
 		PG_RETURN_NULL();
-	}
+
 	foreach(lc, dropstmt->objects)
 	{
-		Node *objname = (Node *) lfirst(lc);
-
-		if (strcmp(strVal(objname), "lolor") == 0)
+		if (strcmp(strVal(lfirst(lc)), LOLOR_EXTENSION_NAME) == 0)
 		{
-			has_lolor_objs = true;
+			if (SPI_connect() != SPI_OK_CONNECT)
+				elog(ERROR, "SPI_connect failed");
+			if (SPI_execute("SELECT lolor.set_replica_identity(false)",
+							false, 0) != SPI_OK_SELECT)
+				elog(ERROR, "could not switch off logical decoding of large objects");
+			if (SPI_finish() != SPI_OK_FINISH)
+				elog(ERROR, "SPI_finish failed");
 			break;
 		}
 	}
-	if (!has_lolor_objs)
-		PG_RETURN_NULL();
-
-	/*
-	 * OK, this is DROP EXTENSION lolor. Rename our own
-	 * functions out of the way (they will later be dropped by the
-	 * DROP EXTENSION itself, and rename the original PostgreSQL
-	 * functions back to what they were.
-	 */
-	SPI_connect();
-
-	SPI_execute("SELECT CASE WHEN lolor.is_enabled() THEN lolor.disable() ELSE 'true' END CASE",
-				false, 0);
-	SPI_finish();
 
 	PG_RETURN_NULL();
 }
