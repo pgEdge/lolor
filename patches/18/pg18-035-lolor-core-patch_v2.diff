@@ -1,0 +1,143 @@
+diff --git a/src/backend/access/heap/heapam.c b/src/backend/access/heap/heapam.c
+index 6203e3d7f8d..6c86e061a1c 100644
+--- a/src/backend/access/heap/heapam.c
++++ b/src/backend/access/heap/heapam.c
+@@ -2805,6 +2805,15 @@ heap_delete(Relation relation, ItemPointer tid,
+ 				(errcode(ERRCODE_INVALID_TRANSACTION_STATE),
+ 				 errmsg("cannot delete tuples during a parallel operation")));
+ 
++	/*
++	 * Like heap_update(), load the replica identity attributes before locking
++	 * the buffer: computing them reads catalogs, which is not allowed while
++	 * a catalog buffer is locked.  Only catalog relations need this.
++	 */
++	if (IsCatalogRelation(relation) && RelationIsLogicallyLogged(relation))
++		bms_free(RelationGetIndexAttrBitmap(relation,
++											INDEX_ATTR_BITMAP_IDENTITY_KEY));
++
+ 	block = ItemPointerGetBlockNumber(tid);
+ 	buffer = ReadBuffer(relation, block);
+ 	page = BufferGetPage(buffer);
+diff --git a/src/backend/catalog/pg_largeobject.c b/src/backend/catalog/pg_largeobject.c
+index 89fc8102150..e6b2a4b1108 100644
+--- a/src/backend/catalog/pg_largeobject.c
++++ b/src/backend/catalog/pg_largeobject.c
+@@ -24,6 +24,8 @@
+ #include "utils/fmgroids.h"
+ #include "utils/rel.h"
+ 
++/* Hook for plugins to choose the OID of a new large object */
++LargeObjectNewOid_hook_type LargeObjectNewOid_hook = NULL;
+ 
+ /*
+  * Create a large object having the given LO identifier.
+@@ -54,6 +56,10 @@ LargeObjectCreate(Oid loid)
+ 
+ 	if (OidIsValid(loid))
+ 		loid_new = loid;
++	else if (LargeObjectNewOid_hook)
++		loid_new = (*LargeObjectNewOid_hook) (pg_lo_meta,
++											  LargeObjectMetadataOidIndexId,
++											  Anum_pg_largeobject_metadata_oid);
+ 	else
+ 		loid_new = GetNewOidWithIndex(pg_lo_meta,
+ 									  LargeObjectMetadataOidIndexId,
+diff --git a/src/backend/executor/execReplication.c b/src/backend/executor/execReplication.c
+index bb78d89265d..54f7eb29455 100644
+--- a/src/backend/executor/execReplication.c
++++ b/src/backend/executor/execReplication.c
+@@ -658,10 +658,11 @@ ExecSimpleRelationUpdate(ResultRelInfo *resultRelInfo,
+ 
+ 	/*
+ 	 * We support only non-system tables, with
+-	 * check_publication_add_relation() accountable.
++	 * check_publication_add_relation() accountable, except for the large
++	 * object catalogs (see RelationIsLogicallyLogged).
+ 	 */
+ 	Assert(rel->rd_rel->relkind == RELKIND_RELATION);
+-	Assert(!IsCatalogRelation(rel));
++	Assert(!IsCatalogRelation(rel) || RelationIsLargeObjectCatalogLogged(rel));
+ 
+ 	CheckCmdReplicaIdentity(rel, CMD_UPDATE);
+ 
+diff --git a/src/include/catalog/pg_largeobject.h b/src/include/catalog/pg_largeobject.h
+index 42971bf3bbb..b2c4a18bb9f 100644
+--- a/src/include/catalog/pg_largeobject.h
++++ b/src/include/catalog/pg_largeobject.h
+@@ -20,6 +20,7 @@
+ 
+ #include "catalog/genbki.h"
+ #include "catalog/pg_largeobject_d.h"	/* IWYU pragma: export */
++#include "utils/relcache.h"
+ #include "utils/snapshot.h"
+ 
+ /* ----------------
+@@ -47,6 +48,18 @@ typedef FormData_pg_largeobject *Form_pg_largeobject;
+ 
+ DECLARE_UNIQUE_INDEX_PKEY(pg_largeobject_loid_pn_index, 2683, LargeObjectLOidPNIndexId, pg_largeobject, btree(loid oid_ops, pageno int4_ops));
+ 
++/* Defined if LargeObjectNewOid_hook exists, for extensions to test */
++#define LARGEOBJECT_NEWOID_HOOK 1
++
++/*
++ * Hook to choose the OID of a new large object, called when the caller did not
++ * give one.  It takes the arguments of GetNewOidWithIndex() for
++ * pg_largeobject_metadata, and must likewise return an unused OID.
++ */
++typedef Oid (*LargeObjectNewOid_hook_type) (Relation pg_lo_meta, Oid indexId,
++											AttrNumber oidcolumn);
++extern PGDLLIMPORT LargeObjectNewOid_hook_type LargeObjectNewOid_hook;
++
+ extern Oid	LargeObjectCreate(Oid loid);
+ extern void LargeObjectDrop(Oid loid);
+ extern bool LargeObjectExists(Oid loid);
+diff --git a/src/include/utils/rel.h b/src/include/utils/rel.h
+index b552359915f..fb1604f78f7 100644
+--- a/src/include/utils/rel.h
++++ b/src/include/utils/rel.h
+@@ -19,6 +19,8 @@
+ #include "catalog/catalog.h"
+ #include "catalog/pg_class.h"
+ #include "catalog/pg_index.h"
++#include "catalog/pg_largeobject_d.h"
++#include "catalog/pg_largeobject_metadata_d.h"
+ #include "catalog/pg_publication.h"
+ #include "nodes/bitmapset.h"
+ #include "partitioning/partdefs.h"
+@@ -697,6 +699,18 @@ RelationCloseSmgr(Relation relation)
+ 	 RelationNeedsWAL(relation) && \
+ 	 (IsCatalogRelation(relation) || RelationIsUsedAsCatalogTable(relation)))
+ 
++/*
++ * RelationIsLargeObjectCatalogLogged
++ *		True for a large object catalog that has a replica identity, which
++ *		catalogs are created without.  An extension can set one to have the
++ *		large objects replicated.  Being read from the relcache, the setting
++ *		is as of the time of the change when decoding.
++ */
++#define RelationIsLargeObjectCatalogLogged(relation) \
++	((RelationGetRelid(relation) == LargeObjectRelationId || \
++	  RelationGetRelid(relation) == LargeObjectMetadataRelationId) && \
++	 (relation)->rd_rel->relreplident != REPLICA_IDENTITY_NOTHING)
++
+ /*
+  * RelationIsLogicallyLogged
+  *		True if we need to log enough information to extract the data from the
+@@ -707,13 +721,15 @@ RelationCloseSmgr(Relation relation)
+  * and for system tables (their content is hard to make sense of, and
+  * it would complicate decoding slightly for little gain). Note that we *do*
+  * log information for user defined catalog tables since they presumably are
+- * interesting to the user...
++ * interesting to the user...  The large object catalogs are logged too, once
++ * they have a replica identity.
+  */
+ #define RelationIsLogicallyLogged(relation) \
+ 	(XLogLogicalInfoActive() && \
+ 	 RelationNeedsWAL(relation) && \
+ 	 (relation)->rd_rel->relkind != RELKIND_FOREIGN_TABLE &&	\
+-	 !IsCatalogRelation(relation))
++	 (!IsCatalogRelation(relation) || \
++	  RelationIsLargeObjectCatalogLogged(relation)))
+ 
+ /* routines in utils/cache/relcache.c */
+ extern void RelationIncrementReferenceCount(Relation rel);
