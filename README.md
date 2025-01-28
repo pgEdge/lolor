@@ -2,27 +2,36 @@
 
 [![CircleCI](https://dl.circleci.com/status-badge/img/gh/pgEdge/lolor/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/pgEdge/lolor/tree/main)
 
-lolor is a plugin in replacement for Postgres' Large Objects that makes them compatible with Logical Replication.
+lolor is an extension that makes Postgres' Large Objects compatible with Logical Replication.
 
-PostgreSQL supports large objects as related chunks in a pg_largeobject table, which stores binary and text data. Large objects provide stream-style access to user data stored in a special large-object structure in the catalog. However, replication of these catalog tables requires special handling of large objects. The lolor extension allows for the storage of large objects in non-catalog tables, aiding in replication of large objects.
+PostgreSQL supports large objects as related chunks as described in the [pg_largeobject](https://www.postgresql.org/docs/17/catalog-pg-largeobject.html) table. Large objects provide stream-style access to user data stored in a special large-object structure in the catalog. Large objects stored in catalog tables require special handling during replication; the lolor extension allows for the storage of large objects in non-catalog tables, aiding in replication of large objects.
 
-It creates and manages large object related tables in lolor schema i.e.
+lolor creates and manages large object related tables in the lolor schema:
 
 ```
 lolor.pg_largeobject
 lolor.pg_largeobject_metadata
 ```
 
-The Large Objects feature in PostgreSQL allows for the storage of huge files within the database. Every large object is recognised by an OID that is assigned at the time of its creation. It stores objects in smaller segments within a separate system table. LOLOR also generates OIDs for large objects; however, they are distinct from those of native large objects.
+The Large Objects feature in PostgreSQL allows for the storage of huge files within the database. Each large object is recognised by an OID that is assigned at the time of its creation. lolor stores objects in smaller segments within a separate system table and generates associated OIDs for large objects that are distinct from those of native large objects.
 
 ## Requirements
-LOLOR extension require PostgreSQL 16 or newer.
+Use of the lolor extension requires PostgreSQL 16 or newer.
 
 ## Installation
-lolor extension can be installed with `pgedge` cli (https://github.com/pgEdge/pgedge/blob/main/README.md).
 
-Similarly, it can be utilised by compiling and installing from the source code, with the same guidelines as any other PostgreSQL extension constructed using PGXS.
-Make sure that the PATH environment variable includes the directory where pg_config from the PostgreSQL installation is located i.e.
+**Installing Snowflake with pgEdge binaries**
+
+You can use the `pgedge` command line interface (CLI) to install the lolor extension (https://github.com/pgEdge/pgedge/blob/main/README.md).
+
+To use pgEdge binaries to install lolor, go to [pgeEdge Github](https://github.com/pgEdge/pgedge) and install the pgEdge CLI:
+
+`./pgedge install pg16 --start : install lolor`
+
+**Installing Snowflake from source code**
+
+You can also compile and install the extension from the source code, with the same guidelines as any other PostgreSQL extension constructed using PGXS.
+Make sure that your PATH environment variable includes the directory where `pg_config` (under your PostgreSQL installation) is located.
 
 ```
 export PATH=/opt/pg16/bin:$PATH
@@ -33,34 +42,32 @@ make USE_PGXS=1
 make USE_PGXS=1 install
 ```
 
-## Usage
+After installing the lolor extension with either the pgEdge binary or from source code, connect to your Postgres database and create the extension with the command:
 
-This section describes basic usage of the lolor extension.
+```
+CREATE EXTENSION lolor;
+```
 
-### Setup
 
-`lolor.node` is required to be set before using the extension. It's value can be from 1 to 2^28, it will
-help in generation of new large object OID i.e.
+### Configuration
+
+You must set the `lolor.node` parameter before using the extension. The value can be from 1 to 2^28; the value is used to help in generation of new large object OID.
 
 ```
 lolor.node = 1
 ```
 
-You can also change the search_path to pick large object related tables from lolor schema e.g.
+You can also change the `search_path` to pick large object related tables from the `lolor` schema:
 
 ```
 set search_path=lolor,"$user",public,pg_catalog
 ```
 
-Next the lolor extension has to be installed on the database i.e.
+Any existing methods in `pg_catalog.lo_*` are renamed to `pg_catalog.lo_*_orig`, and new versions of these methods are introduced.
+If you remove the extension, the renamed `pg_catalog.lo_*_orig` functions are restored to their initial names.
 
-```
-CREATE EXTENSION LOLOR;
-```
-The existing methods from `pg_catalog.lo_*` are renamed to `pg_catalog.lo_*_orig`, and new versions of these methods are introduced.
-During the extension's removal, the renamed `pg_catalog.lo_*_orig` functions are restored to their initial names.
-
-While using `pgedge`, to enable replication of large objects, tables `pg_largeobject` and `pg_largeobject_metadata` are required to be added in replication set e.g.
+While using `pgedge` replication with large objects, you must have the tables `pg_largeobject` and `pg_largeobject_metadata` in your replication set; use 
+the following commands to add the tables:
 
 ```
 ./pgedge spock repset-add-table spock_replication_set 'lolor.pg_largeobject' lolor_db
@@ -70,65 +77,53 @@ While using `pgedge`, to enable replication of large objects, tables `pg_largeob
 ### Example usage
 
 ```
--- Create a large object with no data, returns OID of new
-lolor_db=# SELECT
-        LO_CREAT (-1);
+-- Create a large object with no data and return the oid:
+lolor_db=# SELECT lo_creat (-1);
  lo_creat 
 ----------
   1100433
 (1 row)
 
--- Get related stats
-lolor_db=# SELECT * FROM
-		lolor.PG_LARGEOBJECT_METADATA where oid = 1100433;
+-- Querying the lolor schema for related stats:
+lolor_db=# SELECT * FROM lolor.pg_largeobject_metadata where oid = 1100433:
    oid   | lomowner | lomacl 
 ---------+----------+--------
  1100433 |       10 | 
 (1 row)
 
-
--- Try to to create empty large object with OID 200000
-lolor_db=# SELECT
-        LO_CREATE (200001);
+-- Creating an empty large object with oid 200000:
+lolor_db=# SELECT lo_create (200000);
  lo_create 
 -----------
-    200001
+    200000
 (1 row)
 
 -- Get related stats
-lolor_db=# SELECT *
-        FROM
-        lolor.PG_LARGEOBJECT_METADATA where oid = 200001;
+lolor_db=# SELECT * FROM lolor.pg_largeobject_metadata where oid = 200001:
   oid   | lomowner | lomacl 
 --------+----------+--------
  200001 |       10 | 
 (1 row)
 
---  Try to import an operating system file as a large object
-lolor_db=# SELECT
-        LO_IMPORT ('/etc/os-release');
- lo_import 
+-- Import an operating system file as a large object:
+lolor_db=# SELECT lo_import ('/etc/os-release');
+ lo_import
 -----------
    1100449
 (1 row)
 
--- Get related info
-lolor_db=# SELECT
-        *
-        FROM
-        lolor.PG_LARGEOBJECT where loid = 1100449;
-  loid   | pageno |                                                                                                                                                  
-                                                                                                                         data                                        
-                                                                                                                                                                     
-                                                              
+-- Return information about the large object:
+lolor_db=# SELECT * FROM
+        lolor.pg_largeobject where loid = 1100449;
+  loid   | pageno | data                                                                  
  1100449 |      0 | \x5052455454595f4e414d453d2244656269616e20474e552f4c696e75782031322028626f6f6b776f726d29220a4e414d453d2244656269616e20474e552f4c696e7578220a56455
 253494f4e5f49443d223132220a56455253494f4e3d2231322028626f6f6b776f726d29220a56455253494f4e5f434f44454e414d453d626f6f6b776f726d0a49443d64656269616e0a484f4d455f55524c3d
 2268747470733a2f2f7777772e64656269616e2e6f72672f220a535550504f52545f55524c3d2268747470733a2f2f7777772e64656269616e2e6f72672f737570706f7274220a4255475f5245504f52545f5
 5524c3d2268747470733a2f2f627567732e64656269616e2e6f72672f220a
 (1 row)
 
-lolor_db=# SELECT
-        LO_UNLINK (1100449);
+-- Unlink a large object:
+lolor_db=# SELECT lo_unlink (1100449);
  lo_unlink 
 -----------
          1
@@ -137,8 +132,6 @@ lolor_db=# SELECT
 
 ## Limitations
 
-- Native large object functionality cannot be used while using LOLOR extension
-- Native large object migration to LOLOR feature is not available yet (TODO list)
-- The statements `ALTER LARGE OBJECT`, `GRANT ON LARGE OBJECT`,
-    `COMMENT ON LARGE OBJECT` AND `REVOKE ON LARGE OBJECT` don't have support
-    yet (TODO list)
+- Native large object functionality cannot be used while you are using the lolor extension.
+- Native large object migration to the lolor feature is not available yet.
+- lolor does not support the following statements: `ALTER LARGE OBJECT`, `GRANT ON LARGE OBJECT`, `COMMENT ON LARGE OBJECT`, and `REVOKE ON LARGE OBJECT`.
