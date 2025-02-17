@@ -26,16 +26,13 @@ jobs:
     - name: Set up Docker
       uses: docker/setup-buildx-action@v2
 
-    - name: Build Docker Image
-      run: |
-        docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor .
-        docker build --build-arg PGVER=${{ matrix.pgver }} -t tester .
-   
-    - name: Run Docker Compose
+    - name: Build and run docker images
       run: |
         cd docker
+        docker-compose build --build-arg PGVER=${{ matrix.pgver }} -t lolor Dockerfile.el9
+        docker-compose build --build-arg PGVER=${{ matrix.pgver }} -t tester Dockerfile.tester
         docker-compose up -d
-
+   
     - name: Wait for PostgreSQL to be ready
       run: |
         while [ "$(docker inspect -f '{{.State.Running}}' tester)" == "true" ]; do
