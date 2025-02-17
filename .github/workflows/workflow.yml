@@ -45,15 +45,12 @@ jobs:
           sleep 1
         done
         grep -Eq "FAIL|ERROR" tests/out.txt && exit 1 || exit 0
-        docker logs n1 > n1.txt
-        docker logs n2 > n2.txt
-        docker logs n3 > n3.txt
+        docker logs n1
+        docker logs n2
+        docker logs n3
 
     - name: Upload Log File as Artifact
       uses: actions/upload-artifact@v4
       with:
         name: latest-log-${{ matrix.pgver }}
-        path: |
-          n1.txt
-          n2.txt
-          n3.txt
+        path: tests/out.txt
