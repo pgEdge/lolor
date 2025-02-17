@@ -54,5 +54,6 @@ jobs:
       with:
         name: latest-log-${{ matrix.pgver }}
         path: |
-          tests/out.txt
-          *.txt
+          n1.txt
+          n2.txt
+          n3.txt
