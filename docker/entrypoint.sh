@@ -46,7 +46,7 @@ done
 cd /home/pgedge/lolor
 make USE_PGXS=1 clean
 make USE_PGXS=1
-make USE_PGXS=1 install
+sudo make USE_PGXS=1 install
 
 psql -U admin -d demo -h /tmp <<_EOF_
 drop extension lolor;
