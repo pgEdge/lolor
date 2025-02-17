@@ -38,7 +38,7 @@ jobs:
       run: |
         cd docker
         docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor -f Dockerfile.el9 .
-        docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor-tester -f Dockerfile.tester .
+        docker build -t lolor-tester -f Dockerfile.tester .
         docker compose up -d
    
     - name: Wait for tests to complete
