@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   pgedge-n1:
     container_name: n1

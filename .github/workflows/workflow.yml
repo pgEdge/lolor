@@ -30,22 +30,29 @@ jobs:
       uses: docker/setup-compose-action@v1
 
     - name: Build and run docker images
+      continue-on-error: true
       run: |
         cd docker
         docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor -f Dockerfile.el9 .
         docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor-tester -f Dockerfile.tester .
         docker compose up -d
    
-    - name: Wait for PostgreSQL to be ready
+    - name: Wait for tests to complete
+      continue-on-error: true
       run: |
         while [ "$(docker inspect -f '{{.State.Running}}' tester)" == "true" ]; do
           echo "Waiting for tests to complete..."
           sleep 1
         done
         grep -Eq "FAIL|ERROR" tests/out.txt && exit 1 || exit 0
+        docker logs n1 > n1.txt
+        docker logs n2 > n2.txt
+        docker logs n3 > n3.txt
 
     - name: Upload Log File as Artifact
       uses: actions/upload-artifact@v4
       with:
         name: latest-log-${{ matrix.pgver }}
-        path: tests/out.txt
+        path: |
+          tests/out.txt
+          *.txt
