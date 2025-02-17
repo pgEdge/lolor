@@ -32,9 +32,9 @@ jobs:
     - name: Build and run docker images
       run: |
         cd docker
-        docker-compose build --build-arg PGVER=${{ matrix.pgver }} -t lolor Dockerfile.el9
-        docker-compose build --build-arg PGVER=${{ matrix.pgver }} -t tester Dockerfile.tester
-        docker-compose up -d
+        docker compose build --build-arg PGVER=${{ matrix.pgver }} -t lolor Dockerfile.el9
+        docker compose build --build-arg PGVER=${{ matrix.pgver }} -t tester Dockerfile.tester
+        docker compose up -d
    
     - name: Wait for PostgreSQL to be ready
       run: |
