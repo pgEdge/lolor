@@ -1,0 +1,51 @@
+name: Docker tests
+run-name: ${{ github.actor }} is running the test schedules.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    
+
+jobs:
+  run-scripts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04]
+        pgver: [14, 15, 16, 17]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout lolor
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.ref }}
+
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v2
+
+    - name: Build Docker Image
+      run: |
+        docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor .
+        docker build --build-arg PGVER=${{ matrix.pgver }} -t tester .
+   
+    - name: Run Docker Compose
+      run: |
+        cd docker
+        docker-compose up -d
+
+    - name: Wait for PostgreSQL to be ready
+      run: |
+        while [ "$(docker inspect -f '{{.State.Running}}' tester)" == "true" ]; do
+          echo "Waiting for tests to complete..."
+          sleep 1
+        done
+        grep -Eq "FAIL|ERROR" tests/out.txt && exit 1 || exit 0
+
+    - name: Upload Log File as Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: latest-log-${{ matrix.pgver }}
+        path: tests/out.txt

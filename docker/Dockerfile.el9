@@ -1,6 +1,7 @@
 FROM rockylinux:9
 
 RUN dnf -y  --allowerasing install \
+    epel-release  \
     curl sudo python3 \
     openssh-server openssh-clients \
     make gcc clang llvm

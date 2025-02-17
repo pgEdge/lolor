@@ -4,7 +4,10 @@ services:
   pgedge-n1:
     container_name: n1
     hostname: n1
-    image: pgedgeinc/lolor
+    image: lolor
+    build:
+      context: .
+      dockerfile: Dockerfile.el9
     environment:
       - HOSTNAME=n1
       - PEER_NAMES=n2,n3
@@ -23,7 +26,7 @@ services:
   pgedge-n2:
     container_name: n2
     hostname: n2
-    image: pgedgeinc/lolor
+    image: lolor
     environment:
       - HOSTNAME=n2
       - PEER_NAMES=n1,n3
@@ -41,7 +44,7 @@ services:
   pgedge-n3:
     container_name: n3
     hostname: n3
-    image: pgedgeinc/lolor
+    image: lolor
     environment:
       - HOSTNAME=n3
       - PEER_NAMES=n1,n2
@@ -59,7 +62,10 @@ services:
   pgedge-tester:
     container_name: tester
     hostname: tester
-    image: pgedgeinc/lolor-tester
+    image: lolor-tester
+    build:
+      context: .
+      dockerfile: Dockerfile.tester
     environment:
       - HOSTNAME=tester
       - PEER_NAMES=n1,n2,n3

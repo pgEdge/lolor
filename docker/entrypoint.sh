@@ -1,11 +1,16 @@
 #!/bin/bash
-#set -e
+set -e
 
-source /home/pgedge/pgedge/pg16/pg16.env
 cd /home/pgedge/pgedge
-#
+. pg16/pg16.env
+echo 'export LD_LIBRARY_PATH=/home/pgedge/pgedge/pg16/lib:$LD_LIBRARY_PATH' >> /home/pgedge/.bashrc
+echo 'export LD_LIBRARY_PATH=/usr/lib64:$LD_LIBRARY_PATH' >> /home/pgedge/.bashrc
+echo 'export PATH=/home/pgedge/pgedge/pg16/bin:$PATH' >> /home/pgedge/.bashrc
+. /home/pgedge/.bashrc
+sudo ldconfig
+
 ./pgedge start
-#
+
 while ! pg_isready -h /tmp; do
   echo "Waiting for PostgreSQL to become ready..."
   sleep 1
@@ -37,6 +42,11 @@ done
 ./pgedge spock sub-create sub_${peer_names[1]}$HOSTNAME   "host=${peer_names[1]} port=5432 user=pgedge dbname=demo" demo
 ./pgedge spock sub-add-repset sub_${peer_names[0]}$HOSTNAME demo_replication_set demo
 ./pgedge spock sub-add-repset sub_${peer_names[1]}$HOSTNAME demo_replication_set demo
+
+cd /home/pgedge/lolor
+make USE_PGXS=1 clean
+make USE_PGXS=1
+make USE_PGXS=1 install
 
 psql -U admin -d demo -h /tmp <<_EOF_
 drop extension lolor;
