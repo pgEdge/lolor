@@ -44,10 +44,10 @@ jobs:
           echo "Waiting for tests to complete..."
           sleep 1
         done
-        grep -Eq "FAIL|ERROR" tests/out.txt && exit 1 || exit 0
         docker logs n1
         docker logs n2
         docker logs n3
+        grep -Eq "FAIL|ERROR" tests/out.txt && exit 1 || exit 0
 
     - name: Upload Log File as Artifact
       uses: actions/upload-artifact@v4
