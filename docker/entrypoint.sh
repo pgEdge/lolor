@@ -44,8 +44,8 @@ done
 ./pgedge spock sub-add-repset sub_${peer_names[1]}$HOSTNAME demo_replication_set demo
 
 cd /home/pgedge/lolor
-make USE_PGXS=1 clean
-make USE_PGXS=1
+sudo make USE_PGXS=1 clean
+sudo make USE_PGXS=1
 sudo make USE_PGXS=1 install
 
 psql -U admin -d demo -h /tmp <<_EOF_
