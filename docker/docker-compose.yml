@@ -5,9 +5,6 @@ services:
     container_name: n1
     hostname: n1
     image: lolor
-    build:
-      context: .
-      dockerfile: Dockerfile.el9
     environment:
       - HOSTNAME=n1
       - PEER_NAMES=n2,n3
@@ -63,9 +60,6 @@ services:
     container_name: tester
     hostname: tester
     image: lolor-tester
-    build:
-      context: .
-      dockerfile: Dockerfile.tester
     environment:
       - HOSTNAME=tester
       - PEER_NAMES=n1,n2,n3
