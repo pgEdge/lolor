@@ -1,5 +1,5 @@
-ARG PGVER
 FROM rockylinux:9
+ARG PGVER
 
 RUN dnf -y  --allowerasing install \
     epel-release  \
