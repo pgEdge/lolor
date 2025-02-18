@@ -2,10 +2,10 @@
 set -e
 
 cd /home/pgedge/pgedge
-. pg16/pg16.env
-echo 'export LD_LIBRARY_PATH=/home/pgedge/pgedge/pg16/lib:$LD_LIBRARY_PATH' >> /home/pgedge/.bashrc
+. pg${PG_VER}/pg${PG_VER}.env
+echo 'export LD_LIBRARY_PATH=/home/pgedge/pgedge/pg${PG_VER}/lib:$LD_LIBRARY_PATH' >> /home/pgedge/.bashrc
 echo 'export LD_LIBRARY_PATH=/usr/lib64:$LD_LIBRARY_PATH' >> /home/pgedge/.bashrc
-echo 'export PATH=/home/pgedge/pgedge/pg16/bin:$PATH' >> /home/pgedge/.bashrc
+echo 'export PATH=/home/pgedge/pgedge/pg${PG_VER}/bin:$PATH' >> /home/pgedge/.bashrc
 . /home/pgedge/.bashrc
 sudo ldconfig
 
@@ -59,4 +59,4 @@ cd /home/pgedge/pgedge
 
 ./pgedge stop
 
-/home/pgedge/pgedge/pg16/bin/postgres -D /home/pgedge/pgedge/data/pg16 2>&1
+/home/pgedge/pgedge/pg${PG_VER}/bin/postgres -D /home/pgedge/pgedge/data/pg${PG_VER} 2>&1

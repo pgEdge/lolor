@@ -34,15 +34,16 @@ jobs:
       uses: docker/setup-compose-action@v1
 
     - name: Build and run docker images
-      continue-on-error: true
       run: |
         cd docker
+        echo PG_VER=${{ matrix.pgver }} >> pgedge.env
         docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor -f Dockerfile.el9 .
         docker build -t lolor-tester -f Dockerfile.tester .
         docker compose up -d
+      env:
+        PG_VER: ${{ matrix.pgver }}
    
     - name: Wait for tests to complete
-      continue-on-error: true
       run: |
         while [ "$(docker inspect -f '{{.State.Running}}' tester)" == "true" ]; do
           echo "Waiting for tests to complete..."

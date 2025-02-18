@@ -1,5 +1,7 @@
 FROM rockylinux:9
 ARG PGVER
+# I need this to persist for use in entrypoint as well
+ENV PG_VER=$PGVER
 
 RUN dnf -y  --allowerasing install \
     epel-release  \
@@ -19,7 +21,7 @@ RUN ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 && \
 
 RUN curl -fsSL https://pgedge-download.s3.amazonaws.com/REPO/install.py > /home/pgedge/install.py
 RUN sudo -u pgedge python3 /home/pgedge/install.py
-RUN cd pgedge && ./pgedge setup -U admin -P password -d demo --pg_ver=$PGVER
+RUN cd pgedge && ./pgedge setup -U admin -P password -d demo --pg_ver=$PG_VER
 
 COPY entrypoint.sh /home/pgedge
 RUN sudo chmod +x /home/pgedge/entrypoint.sh
