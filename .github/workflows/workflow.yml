@@ -1,12 +1,12 @@
 name: Docker tests
 run-name: ${{ github.actor }} is running the test schedules.
+
 on:
   push:
     branches:
       - main
   pull_request:
     
-
 jobs:
   run-scripts:
     strategy:
@@ -42,8 +42,10 @@ jobs:
         docker compose up -d
       env:
         PG_VER: ${{ matrix.pgver }}
-   
+
     - name: Wait for tests to complete
+      id: test_step
+      continue-on-error: true
       run: |
         while [ "$(docker inspect -f '{{.State.Running}}' tester)" == "true" ]; do
           echo "Waiting for tests to complete..."
@@ -59,3 +61,8 @@ jobs:
       with:
         name: latest-log-${{ matrix.pgver }}
         path: tests/out.txt
+      if: always()
+
+    - name: Fail the Job if tests failed
+      if: steps.test_step.outcome == 'failure'
+      run: exit 1
