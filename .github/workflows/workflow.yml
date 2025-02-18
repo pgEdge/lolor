@@ -37,6 +37,7 @@ jobs:
       continue-on-error: true
       run: |
         cd docker
+        echo ${{ matrix.pgver }}
         docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor -f Dockerfile.el9 .
         docker build -t lolor-tester -f Dockerfile.tester .
         docker compose up -d
