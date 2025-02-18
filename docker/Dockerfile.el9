@@ -19,7 +19,7 @@ RUN ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 && \
 
 RUN curl -fsSL https://pgedge-download.s3.amazonaws.com/REPO/install.py > /home/pgedge/install.py
 RUN sudo -u pgedge python3 /home/pgedge/install.py
-RUN cd pgedge && ./pgedge setup -U admin -P password -d demo --pg $PGVER
+RUN echo "PGVER=$PGVER" && cd pgedge && ./pgedge setup -U admin -P password -d demo --pg $PGVER
 
 COPY entrypoint.sh /home/pgedge
 RUN sudo chmod +x /home/pgedge/entrypoint.sh
