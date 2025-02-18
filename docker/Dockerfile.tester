@@ -15,7 +15,5 @@ RUN useradd -m pgedge -s /bin/bash && \
 COPY run-tests.sh /home/pgedge
 RUN sudo chmod +x /home/pgedge/run-tests.sh
 
-RUN cd /home/pgedge && git clone https://github.com/pgedge/lolor
-
 WORKDIR /home/pgedge/lolor/tests
 CMD /home/pgedge/run-tests.sh

@@ -1,0 +1,68 @@
+name: Docker tests
+run-name: ${{ github.actor }} is running the test schedules.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    
+jobs:
+  run-scripts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        pgver: [15, 16, 17]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout lolor
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.ref }}
+
+    - name: Add permissions
+      run: |
+        sudo chmod -R a+w ${GITHUB_WORKSPACE}
+
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v2
+
+    - name: Set up docker-compose
+      uses: docker/setup-compose-action@v1
+
+    - name: Build and run docker images
+      run: |
+        cd docker
+        echo PG_VER=${{ matrix.pgver }} >> pgedge.env
+        docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor -f Dockerfile.el9 .
+        docker build -t lolor-tester -f Dockerfile.tester .
+        docker compose up -d
+      env:
+        PG_VER: ${{ matrix.pgver }}
+
+    - name: Wait for tests to complete
+      id: test_step
+      continue-on-error: true
+      run: |
+        while [ "$(docker inspect -f '{{.State.Running}}' tester)" == "true" ]; do
+          echo "Waiting for tests to complete..."
+          sleep 1
+        done
+        docker logs n1
+        docker logs n2
+        docker logs n3
+        grep -Eq "FAIL|ERROR" tests/out.txt && exit 1 || exit 0
+
+    - name: Upload Log File as Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: latest-log-${{ matrix.pgver }}
+        path: tests/out.txt
+      if: always()
+
+    - name: Fail the Job if tests failed
+      if: steps.test_step.outcome == 'failure'
+      run: exit 1
