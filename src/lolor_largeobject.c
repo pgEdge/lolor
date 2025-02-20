@@ -3,8 +3,8 @@
  * lolor_largeobject.c
  *	  routines to support manipulation of the pg_largeobject relation
  *
- * Copyright (c) 2022-2024, pgEdge, Inc.
- * Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
+ * Copyright (c) 2022-2025, pgEdge, Inc.
+ * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
