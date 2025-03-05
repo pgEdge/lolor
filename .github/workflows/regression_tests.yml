@@ -29,7 +29,7 @@ jobs:
 
     - name: Build Docker Image
       run: |
-        docker build -t lolor docker/Dockerfile.ubuntu docker/
+        docker build -t lolor -f docker/Dockerfile.ubuntu docker/
 
     - name: Create Docker Network
       run: |
