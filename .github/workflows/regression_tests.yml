@@ -122,13 +122,20 @@ jobs:
           echo \"Checked out tag: \$LATEST_TAG\"
         "
 
-    - name: Configure, build, and install PostgreSQL
+    - name: Ensure Passwordless Sudo for Postgres inside the container
+      run: |
+        docker exec -u root lolor-${{ matrix.pgver }} bash -c "
+          echo 'postgres ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers.d/postgres && \
+          chmod 0440 /etc/sudoers.d/postgres
+        "
+
+    - name: Configure, Build, and Install PostgreSQL
       run: |
         docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
           cd /home/postgres/postgres-source && \
           ./configure --prefix=/usr/local/pgsql --without-icu && \
           make -j\$(nproc) && \
-          sudo make install
+          make install
         "
 
     - name: Create the PostgreSQL data directory
