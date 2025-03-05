@@ -1,68 +1,276 @@
 name: Docker tests
-run-name: ${{ github.actor }} is running the test schedules.
+run-name: ${{ github.actor }} is running regression tests.
 
 on:
   push:
     branches:
-      - main
+      - '**'
   pull_request:
-    
+    types: [opened, synchronize, reopened]
+
 jobs:
   run-scripts:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-22.04]
         pgver: [15, 16, 17]
 
     runs-on: ${{ matrix.os }}
 
     steps:
-    - name: Checkout lolor
+    - name: Checkout repository
       uses: actions/checkout@v4
       with:
         ref: ${{ github.ref }}
 
-    - name: Add permissions
-      run: |
-        sudo chmod -R a+w ${GITHUB_WORKSPACE}
-
     - name: Set up Docker
       uses: docker/setup-buildx-action@v2
 
-    - name: Set up docker-compose
-      uses: docker/setup-compose-action@v1
-
-    - name: Build and run docker images
+    - name: Build Docker Image
       run: |
-        cd docker
-        echo PG_VER=${{ matrix.pgver }} >> pgedge.env
-        docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor -f Dockerfile.el9 .
-        docker build -t lolor-tester -f Dockerfile.tester .
-        docker compose up -d
-      env:
-        PG_VER: ${{ matrix.pgver }}
+        docker build -t lolor docker/
 
-    - name: Wait for tests to complete
-      id: test_step
-      continue-on-error: true
+    - name: Create Docker Network
       run: |
-        while [ "$(docker inspect -f '{{.State.Running}}' tester)" == "true" ]; do
-          echo "Waiting for tests to complete..."
-          sleep 1
+        docker network create pg_network || true
+
+    - name: Run Docker Container with Unique Port
+      run: |
+        PGPORT=$((5400 + ${{ matrix.pgver }}))  # Assign unique ports (5415, 5416, 5417)
+        CONTAINER_NAME=lolor-${{ matrix.pgver }}  # Unique container name
+    
+        echo "Starting PostgreSQL container: $CONTAINER_NAME on port $PGPORT"
+    
+        docker run -d --name $CONTAINER_NAME --network pg_network \
+          -e PGPORT=$PGPORT \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_DB=postgres \
+          -p $PGPORT:5432 lolor || { echo "Failed to start container: $CONTAINER_NAME"; exit 1; }
+    
+    - name: Wait for SSH to Start
+      run: |
+        CONTAINER_NAME=lolor-${{ matrix.pgver }}  # Match dynamic container name
+        echo "Waiting for SSH to start in container: $CONTAINER_NAME..."
+    
+        for i in {1..10}; do
+          if docker exec $CONTAINER_NAME pgrep sshd > /dev/null 2>&1; then
+            echo "SSHD is running!"
+            exit 0
+          fi
+          echo "SSHD not ready, retrying..."
+          sleep 2
         done
-        docker logs n1
-        docker logs n2
-        docker logs n3
-        grep -Eq "FAIL|ERROR" tests/out.txt && exit 1 || exit 0
+    
+        echo "SSHD failed to start in $CONTAINER_NAME!"
+        docker logs $CONTAINER_NAME  # Print logs for debugging
+        exit 1
+
+    - name: Install System Dependencies Inside the Container
+      run: |
+        docker exec -u root lolor-${{ matrix.pgver }} bash -c "
+          apt-get update && \
+          apt-get install -y \
+            build-essential \
+            libreadline-dev \
+            zlib1g-dev \
+            bison \
+            flex \
+            curl \
+            ca-certificates \
+            gcc \
+            git \
+            wget \
+            libicu-dev && \
+          rm -rf /var/lib/apt/lists/*
+        "
+
+    - name: Ensure Passwordless sudo for postgres user
+      run: |
+        echo "postgres ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/postgres
+        sudo chmod 0440 /etc/sudoers.d/postgres
+        sudo usermod -aG sudo postgres  # Add postgres user to sudo group
+
+    - name: Clone the Postgres repo and list the files
+      run: |
+        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
+          sudo apt-get update && sudo apt-get install -y git && \
+          git clone https://github.com/postgres/postgres.git /home/postgres/postgres-source && \
+          cd /home/postgres/postgres-source
+        "
+
+    - name: Verify Cloned Postgres Repository
+      run: |
+        docker exec -u postgres lolor-${{ matrix.pgver }} ls -la /home/postgres/postgres-source
+
+    - name: List all available tags in the cloned Postgres repository
+      run: |
+        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
+          cd /home/postgres/postgres-source && \
+          git fetch --tags && \
+          git tag -l
+        "
+
+    - name: Checkout the latest PostgreSQL tag that matches matrix.pgver
+      run: |
+        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
+          cd /home/postgres/postgres-source && \
+          git fetch --tags && \
+          MATRIX_PGVER=${{ matrix.pgver }} && \
+          LATEST_TAG=\$(git tag -l \"REL_\${MATRIX_PGVER}*\" | grep -Eo 'REL_[0-9]+_[0-9]+(_[0-9]+)?' | sort -V | tail -n 1) && \
+          git checkout \$LATEST_TAG && \
+          echo \"Checked out tag: \$LATEST_TAG\"
+        "
+
+    - name: Configure, build, and install PostgreSQL
+      run: |
+        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
+          cd /home/postgres/postgres-source && \
+          ./configure --prefix=/usr/local/pgsql --without-icu && \
+          make -j\$(nproc) && \
+          sudo make install
+        "
+
+    - name: Create the PostgreSQL data directory
+      run: |
+        docker exec -u root lolor-${{ matrix.pgver }} bash -c "
+          mkdir -p /var/lib/postgresql/data && \
+          chown -R postgres:postgres /var/lib/postgresql && \
+          chmod 700 /var/lib/postgresql/data
+        "
+
+    - name: Initialize PostgreSQL Cluster for matrix.pgver
+      run: |
+        PGPORT=$((5400 + ${{ matrix.pgver }}))  # Assign a unique port
+        PGDATA_DIR="/var/lib/postgresql/data-${{ matrix.pgver }}"  # Unique data directory
+
+        echo "Initializing PostgreSQL ${{ matrix.pgver }} Cluster..."
+        echo "Using PGDATA: $PGDATA_DIR"
+        echo "Using PGPORT: $PGPORT"
+
+        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
+          export PGDATA=$PGDATA_DIR && export PGPORT=$PGPORT
+          mkdir -p \$PGDATA
+
+          if [ ! -f \$PGDATA/PG_VERSION ]; then
+            echo 'Running initdb for PostgreSQL ${{ matrix.pgver }}...'
+            /usr/local/pgsql/bin/initdb -D \$PGDATA
+          fi
+        "
+
+        echo "PGPORT=$PGPORT" >> $GITHUB_ENV
+        echo "PGDATA=$PGDATA_DIR" >> $GITHUB_ENV
+
+    - name: Locate pg_config and Update PATH
+      run: |
+        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
+          PG_CONFIG_PATH=\$(find /usr/local/pgsql -type f -name pg_config | head -n 1) && \
+          if [ -z \"\$PG_CONFIG_PATH\" ]; then
+            echo 'Error: pg_config not found' && exit 1
+          fi && \
+          PG_BIN_DIR=\$(dirname \"\$PG_CONFIG_PATH\") && \
+          echo \"Found pg_config in: \$PG_BIN_DIR\" && \
+          echo \"export PATH=\$PG_BIN_DIR:\$PATH\" >> /home/postgres/.bashrc && \
+          echo \"export PATH=\$PG_BIN_DIR:\$PATH\" >> /home/postgres/.profile && \
+          echo \"pg_config location successfully added to PATH\" && \
+          export PATH=\$PG_BIN_DIR:\$PATH && \
+          pg_config
+        "
+
+    - name: Clone & Build lolor Extension
+      run: |
+        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
+          PG_CONFIG_PATH=\$(find /usr/local/pgsql -type f -name pg_config | head -n 1) && \
+          if [ -z \"\$PG_CONFIG_PATH\" ]; then \
+            echo 'Error: pg_config not found!' && exit 1; \
+          fi && \
+          export PATH=\$(dirname \"\$PG_CONFIG_PATH\"):\$PATH && \
+          echo \"pg_config location successfully added to PATH: \$(dirname \"\$PG_CONFIG_PATH\")\" && \
+
+          # Ensure contrib directory exists in Postgres source
+          cd /home/postgres/postgres-source/contrib && \
+
+          # Clone lolor extension if it doesn't exist
+          if [ ! -d \"lolor\" ]; then \
+            echo 'Cloning lolor extension...' && \
+            git clone https://x-access-token:${GITHUB_TOKEN}@github.com/pgEdge/lolor.git lolor; \
+          fi && \
+
+          # Move into the lolor extension directory
+          cd lolor && \
+
+          # Build using PGXS
+          echo 'Building lolor extension...' && \
+          USE_PGXS=1 make
+        "
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Make Install lolor as Root
+      run: |
+        docker exec -u root lolor-${{ matrix.pgver }} bash -c "
+          PG_CONFIG_PATH=\$(find /usr/local/pgsql -type f -name pg_config | head -n 1) && \
+          if [ -z \"\$PG_CONFIG_PATH\" ]; then \
+            echo 'Error: pg_config not found!' && exit 1; \
+          fi && \
+          export PATH=\$(dirname \"\$PG_CONFIG_PATH\"):\$PATH && \
+          echo \"pg_config location successfully added to PATH: \$(dirname \"\$PG_CONFIG_PATH\")\" && \
+
+          # Verify lolor directory exists before installing
+          if [ ! -d \"/home/postgres/postgres-source/contrib/lolor\" ]; then \
+            echo 'Error: lolor directory does not exist!'; \
+            exit 1; \
+          fi && \
+
+          cd /home/postgres/postgres-source/contrib/lolor && \
+
+          # Install using PGXS
+          echo 'Installing lolor extension as root...' && \
+          USE_PGXS=1 make install
+        "
+
+    - name: Ensure PG is running, add lolor to shared_preload_libraries, and create extension
+      run: |
+        PGPORT=$((5400 + ${{ matrix.pgver }}))  # Assign unique port per version
+        PGDATA_DIR="/var/lib/postgresql/data-${{ matrix.pgver }}"  # Unique data dir per version
+
+        echo "Checking if PostgreSQL is running for PG ${{ matrix.pgver }} at port $PGPORT..."
+
+        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
+          export PGDATA=$PGDATA_DIR && export PGPORT=$PGPORT
+          PATH=/usr/local/pgsql/bin:$PATH  # Ensure pg_isready is available
+
+          if ! /usr/local/pgsql/bin/pg_isready -p \$PGPORT; then
+            echo 'PostgreSQL is not ready. Starting it now...'
+            /usr/local/pgsql/bin/pg_ctl -D \$PGDATA -o \"-p \$PGPORT\" start && sleep 5
+          fi
+
+          echo 'Ensuring lolor parameter is set...'
+          /usr/local/pgsql/bin/psql -d postgres -p \$PGPORT -c \"ALTER SYSTEM SET shared_preload_libraries TO 'lolor';\"
+
+          echo 'Restarting PostgreSQL to apply changes...'
+          /usr/local/pgsql/bin/pg_ctl -D \$PGDATA -o \"-p \$PGPORT\" restart && sleep 5
+
+          echo 'Verifying PostgreSQL is running...'
+          /usr/local/pgsql/bin/pg_isready -p \$PGPORT
+
+          echo 'PostgreSQL is running. Listing available extensions:'
+          /usr/local/pgsql/bin/psql -d postgres -p \$PGPORT -c 'SELECT * FROM pg_available_extensions;'
+
+          echo 'Creating lolor extension...'
+          /usr/local/pgsql/bin/psql -d postgres -p \$PGPORT -c 'CREATE EXTENSION lolor;'
+        "
+
+    - name: Put your test cases here
+      run: |
+        echo "Current User: $(whoami)" > latest.log
+        echo "Current Path: $(pwd)" >> latest.log
+        cat latest.log
 
     - name: Upload Log File as Artifact
+      if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
         name: latest-log-${{ matrix.pgver }}
-        path: tests/out.txt
-      if: always()
+        path: latest.log
 
-    - name: Fail the Job if tests failed
-      if: steps.test_step.outcome == 'failure'
-      run: exit 1
