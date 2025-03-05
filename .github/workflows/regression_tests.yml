@@ -91,12 +91,12 @@ jobs:
         sudo chmod 0440 /etc/sudoers.d/postgres
         sudo usermod -aG sudo postgres  # Add postgres user to sudo group
 
-    - name: Clone the Postgres repo and list the files
+    - name: Clone PostgreSQL Repository Inside the Container
       run: |
-        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
-          sudo apt-get update && sudo apt-get install -y git && \
-          git clone https://github.com/postgres/postgres.git /home/postgres/postgres-source && \
-          cd /home/postgres/postgres-source
+        docker exec -u root lolor-16 bash -c "
+          apt-get update && apt-get install -y git && \
+          su - postgres -c 'git clone https://github.com/postgres/postgres.git /home/postgres/postgres-source' && \
+          su - postgres -c 'cd /home/postgres/postgres-source'
         "
 
     - name: Verify Cloned Postgres Repository
