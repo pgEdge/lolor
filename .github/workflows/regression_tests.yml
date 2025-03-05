@@ -236,10 +236,10 @@ jobs:
           USE_PGXS=1 make install
         "
 
-    - name: Ensure PG is running, add lolor to shared_preload_libraries, and create extension
+    - name: Start PostgreSQL & Configure lolor
       run: |
         PGPORT=$((5400 + ${{ matrix.pgver }}))
-        PGDATA_DIR="/var/lib/postgresql/data-${{ matrix.pgver }}"  
+        PGDATA_DIR="/var/lib/postgresql/data-${{ matrix.pgver }}"
 
         echo "Checking if PostgreSQL is running for PG ${{ matrix.pgver }} at port $PGPORT..."
 
@@ -259,13 +259,39 @@ jobs:
           /usr/local/pgsql/bin/psql -d postgres -p \$PGPORT -c \"ALTER SYSTEM SET shared_preload_libraries = 'lolor';\"
 
           echo 'Restarting PostgreSQL to apply changes...'
-          /usr/local/pgsql/bin/pg_ctl -D \$PGDATA -o \"-p \$PGPORT\" restart && sleep 5
+          /usr/local/pgsql/bin/pg_ctl -D \$PGDATA -o \"-p \$PGPORT\" restart || {
+            echo 'PostgreSQL failed to restart! Checking logs:'
+            cat \$PGDATA/postgresql.log
+            exit 1
+          }
+        "
 
-          echo 'Verifying PostgreSQL is running...'
-          /usr/local/pgsql/bin/pg_isready -p \$PGPORT
+    - name: Verify PostgreSQL is Running
+      run: |
+        PGPORT=$((5400 + ${{ matrix.pgver }}))
 
-          echo 'Creating lolor extension...'
-          /usr/local/pgsql/bin/psql -d postgres -p \$PGPORT -c 'CREATE EXTENSION lolor;'
+        echo "Verifying PostgreSQL is running on port $PGPORT..."
+
+        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
+          if ! /usr/local/pgsql/bin/pg_isready -p \$PGPORT; then
+            echo 'ERROR: PostgreSQL is NOT running on port $PGPORT'
+            exit 1
+          else
+            echo 'SUCCESS: PostgreSQL is running!'
+          fi
+        "
+
+    - name: Create lolor Extension
+      run: |
+        PGPORT=$((5400 + ${{ matrix.pgver }}))
+
+        echo "Creating lolor extension on PostgreSQL port $PGPORT..."
+
+        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
+          /usr/local/pgsql/bin/psql -d postgres -p \$PGPORT -c 'CREATE EXTENSION lolor;' || {
+            echo 'ERROR: Failed to create lolor extension!'
+            exit 1
+          }
         "
 
     - name: Put your test cases here
