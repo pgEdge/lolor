@@ -266,21 +266,6 @@ jobs:
           }
         "
 
-    - name: Verify PostgreSQL is Running
-      run: |
-        PGPORT=$((5400 + ${{ matrix.pgver }}))
-
-        echo "Verifying PostgreSQL is running on port $PGPORT..."
-
-        docker exec -u postgres lolor-${{ matrix.pgver }} bash -c "
-          if ! /usr/local/pgsql/bin/pg_isready -p \$PGPORT; then
-            echo 'ERROR: PostgreSQL is NOT running on port $PGPORT'
-            exit 1
-          else
-            echo 'SUCCESS: PostgreSQL is running!'
-          fi
-        "
-
     - name: Create lolor Extension
       run: |
         PGPORT=$((5400 + ${{ matrix.pgver }}))
