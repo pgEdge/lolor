@@ -189,3 +189,50 @@ CREATE EVENT TRIGGER lo_on_drop_extension
 	ON ddl_command_start WHEN tag IN ('DROP EXTENSION')
 	EXECUTE FUNCTION pg_catalog.lo_on_drop_extension();
 ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+
+/*
+	clean up large object to avoid orphan large objects that are
+	no more associated with any table row in case of DELETE or UPDATE
+	operations
+*/
+CREATE FUNCTION lolor.lo_manage()
+	RETURNS TRIGGER
+AS $lo_manage$
+DECLARE
+   loid_old oid;
+   loid_new oid;
+BEGIN
+	-- handle UPDATE or DELETE operation only
+	IF TG_OP != 'UPDATE' AND
+		TG_OP != 'DELETE' THEN
+		RAISE EXCEPTION 'Trigger function LO_MANAGE should be fired for UPDATE OR DELETE only';
+	END IF;
+
+	IF TG_NARGS < 1 THEN
+		RAISE EXCEPTION 'trigger %: no column name provided in the trigger definition', TG_NAME;
+	END IF;
+	IF TG_LEVEL != 'ROW' THEN
+		RAISE EXCEPTION 'trigger % should be fired for row', TG_NAME;
+	END IF;
+	IF NOT to_jsonb(OLD)?TG_ARGV[0] THEN
+		RAISE EXCEPTION 'trigger %: column "%" does not exist', TG_NAME, TG_ARGV[0];
+	END IF;
+
+	loid_old = (row_to_json(OLD)->>TG_ARGV[0])::oid;
+	loid_new = (row_to_json(NEW)->>TG_ARGV[0])::oid;
+	IF TG_OP = 'UPDATE' THEN
+		IF loid_old IS NOT NULL AND
+			(loid_old != loid_new OR loid_new IS NULL) THEN
+			-- take care of updated rows operation, in case large object id changes
+			RAISE NOTICE 'trigger %: (update) removing large object oid %', TG_NAME, loid_old;
+			PERFORM lo_unlink(loid_old);
+		END IF;
+		RETURN NEW;
+	ELSIF TG_OP = 'DELETE' THEN
+		-- take care of deleted row operation
+		RAISE NOTICE 'trigger %: (delete) removing large object oid %', TG_NAME, loid_old;
+		PERFORM lo_unlink(loid_old);
+		RETURN OLD;
+	END IF;
+END;
+$lo_manage$ LANGUAGE PLPGSQL;
