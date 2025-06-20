@@ -1,6 +1,6 @@
 module lolor_tests
 
-go 1.22.2
+go 1.23.9
 
 require github.com/jackc/pgx/v5 v5.5.5
 

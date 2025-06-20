@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04]
-        pgver: [15, 16, 17]
+        pgver: [16, 17]
 
     runs-on: ${{ matrix.os }}
 
@@ -259,7 +259,7 @@ jobs:
           /usr/local/pgsql/bin/psql -d postgres -p \$PGPORT -c \"ALTER SYSTEM SET shared_preload_libraries = 'lolor';\"
 
           echo 'Restarting PostgreSQL to apply changes...'
-          /usr/local/pgsql/bin/pg_ctl -D \$PGDATA -o \"-p \$PGPORT\" restart || {
+          /usr/local/pgsql/bin/pg_ctl -D \$PGDATA -o \"-p \$PGPORT\" -l \$PGDATA/postgresql.log restart || {
             echo 'PostgreSQL failed to restart! Checking logs:'
             cat \$PGDATA/postgresql.log
             exit 1
