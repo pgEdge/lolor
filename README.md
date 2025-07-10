@@ -1,7 +1,5 @@
 # lolor
 
-[![CircleCI](https://dl.circleci.com/status-badge/img/gh/pgEdge/lolor/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/pgEdge/lolor/tree/main)
-
 lolor is an extension that makes Postgres' Large Objects compatible with Logical Replication.
 
 PostgreSQL supports large objects as related chunks as described in the [pg_largeobject](https://www.postgresql.org/docs/17/catalog-pg-largeobject.html) table. Large objects provide stream-style access to user data stored in a special large-object structure in the catalog. Large objects stored in catalog tables require special handling during replication; the lolor extension allows for the storage of large objects in non-catalog tables, aiding in replication of large objects.
@@ -13,14 +11,14 @@ lolor.pg_largeobject
 lolor.pg_largeobject_metadata
 ```
 
-The Large Objects feature in PostgreSQL allows for the storage of huge files within the database. Each large object is recognised by an OID that is assigned at the time of its creation. lolor stores objects in smaller segments within a separate system table and generates associated OIDs for large objects that are distinct from those of native large objects.
+PostgreSQL large objects allow you to store huge files within the database. Each large object is recognised by an OID that is assigned at the time of its creation. lolor stores objects in smaller segments within a separate system table and generates associated OIDs for large objects that are distinct from those of native large objects.
 
 ## Requirements
 Use of the lolor extension requires PostgreSQL 16 or newer.
 
 ## Installation
 
-**Installing Snowflake with pgEdge binaries**
+**Installing lolor with pgEdge binaries**
 
 You can use the `pgedge` command line interface (CLI) to install the lolor extension (https://github.com/pgEdge/pgedge/blob/main/README.md).
 
@@ -28,7 +26,7 @@ To use pgEdge binaries to install lolor, go to [pgeEdge Github](https://github.c
 
 `./pgedge install pg16 --start : install lolor`
 
-**Installing Snowflake from source code**
+**Installing lolor from source code**
 
 You can also compile and install the extension from the source code, with the same guidelines as any other PostgreSQL extension constructed using PGXS.
 Make sure that your PATH environment variable includes the directory where `pg_config` (under your PostgreSQL installation) is located.
