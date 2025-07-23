@@ -128,6 +128,54 @@ lolor_db=# SELECT lo_unlink (1100449);
 (1 row)
 ```
 
+## Manage large objects
+
+`lolor` extension provide support for managing Large Objects similar to PostgreSQL native `lo` module. `spock.lo_manage` trigger function
+can be used with trigger by attached tables that contain `LO` reference columns.
+
+### Example usage
+
+```
+CREATE EXTENSION lolor;
+
+-- example table and data
+CREATE TABLE lotest(a INT PRIMARY KEY,
+	b OID
+);
+
+INSERT INTO lotest
+	VALUES (1, lo_import('/etc/os-release'));
+
+-- check the large object oid
+test_db=# SELECT * FROM lotest;
+ a |   b    
+---+--------
+ 1 | 412833
+(1 row)
+
+-- verify large object oid 
+test_db=# SELECT * FROM lolor.pg_largeobject_metadata WHERE oid = 412833;
+  oid   | lomowner | lomacl 
+--------+----------+--------
+ 412833 |    16384 | 
+(1 row)
+
+-- manage table and cleanup to avoid orphen large object
+CREATE TRIGGER t_lotest BEFORE UPDATE OR DELETE ON lotest
+    FOR EACH ROW EXECUTE FUNCTION lolor.lo_manage(b);
+
+-- delete table record related to large object
+test_db=# DELETE FROM lotest WHERE a = 1;
+NOTICE:  trigger t_lotest: (delete) removing large object oid 412833
+DELETE 1
+
+-- related large object also deleted with the table record
+test_db=# SELECT * FROM lolor.pg_largeobject_metadata where oid = 412833;
+ oid | lomowner | lomacl 
+-----+----------+--------
+(0 rows)
+```
+
 ## Limitations
 
 - Native large object functionality cannot be used while you are using the lolor extension.
