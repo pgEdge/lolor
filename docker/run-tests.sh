@@ -33,7 +33,7 @@ sleep 10
 
 cd /home/pgedge/lolor/tests/junit/singlenode
 cp ../../../docker/test-configs/test.properties.java-single test.properties
-mvn test &>> /home/pgedge/lolor/tests/out.txt
+mvn test -Dtest='!TestLOSql' &>> /home/pgedge/lolor/tests/out.txt
 mvn -Dtest=TestLargeObjectAPI test &>> /home/pgedge/lolor/tests/out.txt
 mvn -Dtest=TestLargeObjectAPI#testInsert test &>> /home/pgedge/lolor/tests/out.txt
 

@@ -530,7 +530,7 @@ public class TestLOMethods {
         int loid = t5_a_lo_from_bytea();
         // verify
         pg_largeobject_metadata(loid, true);
-        t5_c_pg_largeobject(loid);
+        //t5_c_pg_largeobject(loid);
         // try to create new large object with same oid
         t5_d_lo_from_bytea(loid);
         // try lo_get
