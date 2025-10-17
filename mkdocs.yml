@@ -50,5 +50,5 @@ repo_url: https://github.com/pgEdge/lolor
 
 nav:
   - lolor Overview: index.md
-  - Building and Installing lolor: docs/install_configure.md
-  - Using lolor: docs/using_lolor.md
+  - Building and Installing lolor: install_configure.md
+  - Using lolor: using_lolor.md
