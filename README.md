@@ -28,7 +28,7 @@ You can also compile and install the extension from the source code, with the sa
 Make sure that your PATH environment variable includes the directory where `pg_config` (under your Postgres installation) is located.
 
 ```
-export PATH=/opt/pg17/bin:$PATH
+export PATH=/usr/pgsql-17/bin:$PATH
 
 # compile
 make USE_PGXS=1
