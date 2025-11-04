@@ -1,0 +1,63 @@
+-- Basic checks
+LOAD 'lolor';
+SET lolor.node = 1;
+CREATE EXTENSION lolor;
+SELECT lo_creat(-1) AS loid \gset
+SELECT lo_from_bytea(:loid, 'Example large object'); -- ERROR
+ERROR:  duplicate key value violates unique constraint "pg_largeobject_metadata_pkey"
+DETAIL:  Key (oid)=(262769) already exists.
+BEGIN;
+SELECT lo_open(:loid, x'60000'::int) AS fd \gset
+SELECT lowrite(:fd, 'Example large object');
+ lowrite 
+---------
+      20
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
+(1 row)
+
+END;
+SELECT count(*) FROM pg_largeobject;
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM lolor.pg_largeobject;
+ count 
+-------
+     1
+(1 row)
+
+-- Check that the LO is accessible.
+BEGIN;
+SELECT lo_open(:loid, 262144) AS fd \gset
+SELECT convert_from(loread(:fd, 1024), 'UTF8');
+     convert_from     
+----------------------
+ Example large object
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
+(1 row)
+
+END;
+-- Force the oid change for the indexes
+REINDEX INDEX CONCURRENTLY lolor.pg_largeobject_pkey;
+REINDEX INDEX CONCURRENTLY lolor.pg_largeobject_metadata_pkey;
+BEGIN;
+SELECT lo_open(:loid, 262144) AS fd \gset
+ERROR:  could not open relation with OID 16399
+SELECT convert_from(loread(:fd, 1024), 'UTF8');
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SELECT lo_close(:fd);
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+END;
+DROP EXTENSION lolor;
