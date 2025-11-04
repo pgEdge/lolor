@@ -37,14 +37,14 @@ int32 lolor_node_id = 0;
 void	_PG_init(void);
 
 /* keep Oids of the large object catalog. */
-Oid	LOLOR_LargeObjectRelationId = InvalidOid;
-Oid	LOLOR_LargeObjectLOidPNIndexId = InvalidOid;
-Oid	LOLOR_LargeObjectMetadataRelationId = InvalidOid;
-Oid	LOLOR_LargeObjectMetadataOidIndexId = InvalidOid;
+static Oid	LOLOR_LargeObjectRelationId = InvalidOid;
+static Oid	LOLOR_LargeObjectLOidPNIndexId = InvalidOid;
+static Oid	LOLOR_LargeObjectMetadataRelationId = InvalidOid;
+static Oid	LOLOR_LargeObjectMetadataOidIndexId = InvalidOid;
 
 PG_FUNCTION_INFO_V1(lolor_on_drop_extension);
 
-Oid
+static Oid
 get_lobj_table_oid(const char *table)
 {
 	Oid			reloid;
@@ -57,6 +57,42 @@ get_lobj_table_oid(const char *table)
 			 EXTENSION_NAME, table);
 
 	return reloid;
+}
+
+Oid
+get_LOLOR_LargeObjectRelationId()
+{
+	if (!OidIsValid(LOLOR_LargeObjectRelationId))
+		LOLOR_LargeObjectRelationId = get_lobj_table_oid(LOLOR_LARGEOBJECT_CATALOG);
+
+	return LOLOR_LargeObjectRelationId;
+}
+
+Oid
+get_LOLOR_LargeObjectLOidPNIndexId()
+{
+	if (!OidIsValid(LOLOR_LargeObjectLOidPNIndexId))
+		LOLOR_LargeObjectLOidPNIndexId = get_lobj_table_oid(LOLOR_LARGEOBJECT_PKEY);
+
+	return LOLOR_LargeObjectLOidPNIndexId;
+}
+
+Oid
+get_LOLOR_LargeObjectMetadataRelationId()
+{
+	if (!OidIsValid(LOLOR_LargeObjectMetadataRelationId))
+		LOLOR_LargeObjectMetadataRelationId = get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA);
+
+	return LOLOR_LargeObjectMetadataRelationId;
+}
+
+Oid
+get_LOLOR_LargeObjectMetadataOidIndexId()
+{
+	if (!OidIsValid(LOLOR_LargeObjectMetadataOidIndexId))
+		LOLOR_LargeObjectMetadataOidIndexId = get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA_PKEY);
+
+	return LOLOR_LargeObjectMetadataOidIndexId;
 }
 
 static void
@@ -111,16 +147,6 @@ _PG_init(void)
 							PGC_SUSET,
 							0,
 							NULL, NULL, NULL);
-
-	/* gather info of large object tables from lolor extension */
-	LOLOR_LargeObjectRelationId =
-			get_lobj_table_oid(LOLOR_LARGEOBJECT_CATALOG);
-	LOLOR_LargeObjectLOidPNIndexId =
-			get_lobj_table_oid(LOLOR_LARGEOBJECT_PKEY);
-	LOLOR_LargeObjectMetadataRelationId =
-			get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA);
-	LOLOR_LargeObjectMetadataOidIndexId =
-			get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA_PKEY);
 
 	/* register transaction callbacks for cleanup. */
 	RegisterXactCallback(lolor_xact_callback, NULL);
@@ -184,7 +210,7 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	foreach(lc, dropstmt->objects)
 	{
 		Node *objname = (Node *) lfirst(lc);
-		
+
 		if (strcmp(strVal(objname), "lolor") == 0)
 		{
 			has_lolor_objs = true;

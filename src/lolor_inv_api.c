@@ -83,9 +83,9 @@ open_lo_relation(void)
 
 	/* Use RowExclusiveLock since we might either read or write */
 	if (lo_heap_r == NULL)
-		lo_heap_r = table_open(LOLOR_LargeObjectRelationId, RowExclusiveLock);
+		lo_heap_r = table_open(get_LOLOR_LargeObjectRelationId(), RowExclusiveLock);
 	if (lo_index_r == NULL)
-		lo_index_r = index_open(LOLOR_LargeObjectLOidPNIndexId, RowExclusiveLock);
+		lo_index_r = index_open(get_LOLOR_LargeObjectLOidPNIndexId(), RowExclusiveLock);
 
 	CurrentResourceOwner = currentOwner;
 }
@@ -140,11 +140,11 @@ myLargeObjectExists(Oid loid, Snapshot snapshot)
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(loid));
 
-	pg_lo_meta = table_open(LOLOR_LargeObjectMetadataRelationId,
+	pg_lo_meta = table_open(get_LOLOR_LargeObjectMetadataRelationId(),
 							AccessShareLock);
 
 	sd = systable_beginscan(pg_lo_meta,
-							LOLOR_LargeObjectMetadataOidIndexId, true,
+							get_LOLOR_LargeObjectMetadataOidIndexId(), true,
 							snapshot, 1, skey);
 
 	tuple = systable_getnext(sd);
@@ -224,11 +224,11 @@ lolor_inv_create(Oid lobjId)
 	 * LOLOR_LargeObjectMetadataRelationId instead would simplify matters for the
 	 * backend, but it'd complicate pg_dump and possibly break other clients.
 	 */
-	recordDependencyOnOwner(LOLOR_LargeObjectRelationId,
+	recordDependencyOnOwner(get_LOLOR_LargeObjectRelationId(),
 							lobjId_new, GetUserId());
 
 	/* Post creation hook for new large object */
-	InvokeObjectPostCreateHook(LOLOR_LargeObjectRelationId, lobjId_new, 0);
+	InvokeObjectPostCreateHook(get_LOLOR_LargeObjectRelationId(), lobjId_new, 0);
 
 	/*
 	 * Advance command counter to make new tuple visible to later operations.
@@ -352,7 +352,7 @@ lolor_inv_drop(Oid lobjId)
 	/*
 	 * Delete any comments and dependencies on the large object
 	 */
-	object.classId = LOLOR_LargeObjectRelationId;
+	object.classId = get_LOLOR_LargeObjectRelationId();
 	object.objectId = lobjId;
 	object.objectSubId = 0;
 	performDeletion(&object, DROP_CASCADE, PERFORM_DELETION_SKIP_ORIGINAL);
