@@ -23,12 +23,10 @@
 
 /* lolor.c */
 extern int32 lolor_node_id;
-extern Oid  LOLOR_LargeObjectRelationId;
-extern Oid	LOLOR_LargeObjectLOidPNIndexId;
-extern Oid	LOLOR_LargeObjectMetadataRelationId;
-extern Oid	LOLOR_LargeObjectMetadataOidIndexId;
-
-extern Oid get_lobj_table_oid(const char *table);
+extern Oid get_LOLOR_LargeObjectRelationId(void);
+extern Oid	get_LOLOR_LargeObjectLOidPNIndexId(void);
+extern Oid	get_LOLOR_LargeObjectMetadataRelationId(void);
+extern Oid	get_LOLOR_LargeObjectMetadataOidIndexId(void);
 
 /* lolor_largeobject.c */
 extern Oid	LOLOR_LargeObjectCreate(Oid loid);

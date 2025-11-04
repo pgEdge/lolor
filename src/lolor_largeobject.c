@@ -59,7 +59,7 @@ LOLOR_LargeObjectCreate(Oid loid)
 	Datum		values[Natts_pg_largeobject_metadata];
 	bool		nulls[Natts_pg_largeobject_metadata];
 
-	pg_lo_meta = table_open(LOLOR_LargeObjectMetadataRelationId,
+	pg_lo_meta = table_open(get_LOLOR_LargeObjectMetadataRelationId(),
 							RowExclusiveLock);
 
 	/*
@@ -72,7 +72,7 @@ LOLOR_LargeObjectCreate(Oid loid)
 		loid_new = loid;
 	else
 		loid_new = LOLOR_GetNewOidWithIndex(pg_lo_meta,
-									  LOLOR_LargeObjectMetadataOidIndexId,
+									  get_LOLOR_LargeObjectMetadataOidIndexId(),
 									  Anum_pg_largeobject_metadata_oid);
 
 	values[Anum_pg_largeobject_metadata_oid - 1] = ObjectIdGetDatum(loid_new);
@@ -105,10 +105,10 @@ LOLOR_LargeObjectDrop(Oid loid)
 	SysScanDesc scan;
 	HeapTuple	tuple;
 
-	pg_lo_meta = table_open(LOLOR_LargeObjectMetadataRelationId,
+	pg_lo_meta = table_open(get_LOLOR_LargeObjectMetadataRelationId(),
 							RowExclusiveLock);
 
-	pg_largeobject = table_open(LOLOR_LargeObjectRelationId,
+	pg_largeobject = table_open(get_LOLOR_LargeObjectRelationId(),
 								RowExclusiveLock);
 
 	/*
@@ -120,7 +120,7 @@ LOLOR_LargeObjectDrop(Oid loid)
 				ObjectIdGetDatum(loid));
 
 	scan = systable_beginscan(pg_lo_meta,
-							  LOLOR_LargeObjectMetadataOidIndexId, true,
+							  get_LOLOR_LargeObjectMetadataOidIndexId(), true,
 							  NULL, 1, skey);
 
 	tuple = systable_getnext(scan);
@@ -142,7 +142,7 @@ LOLOR_LargeObjectDrop(Oid loid)
 				ObjectIdGetDatum(loid));
 
 	scan = systable_beginscan(pg_largeobject,
-							  LOLOR_LargeObjectLOidPNIndexId, true,
+							  get_LOLOR_LargeObjectLOidPNIndexId(), true,
 							  NULL, 1, skey);
 	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
 	{
@@ -182,11 +182,11 @@ LOLOR_LargeObjectExists(Oid loid)
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(loid));
 
-	pg_lo_meta = table_open(LOLOR_LargeObjectMetadataRelationId,
+	pg_lo_meta = table_open(get_LOLOR_LargeObjectMetadataRelationId(),
 							AccessShareLock);
 
 	sd = systable_beginscan(pg_lo_meta,
-							LOLOR_LargeObjectMetadataOidIndexId, true,
+							get_LOLOR_LargeObjectMetadataOidIndexId(), true,
 							NULL, 1, skey);
 
 	tuple = systable_getnext(sd);

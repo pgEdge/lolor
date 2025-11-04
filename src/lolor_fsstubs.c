@@ -361,7 +361,8 @@ lolor_lo_unlink(PG_FUNCTION_ARGS)
 	 * relevant FDs.
 	 */
 	if (!lo_compat_privileges &&
-		!lolor_object_ownercheck(LOLOR_LargeObjectMetadataRelationId, lobjId, GetUserId()))
+		!lolor_object_ownercheck(get_LOLOR_LargeObjectMetadataRelationId(),
+								 lobjId, GetUserId()))
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("must be owner of large object %u", lobjId)));
@@ -938,8 +939,8 @@ lolor_object_ownercheck(Oid classid, Oid objectid, Oid roleid)
 				ObjectIdGetDatum(objectid));
 
 	scan = systable_beginscan(rel,
-								LOLOR_LargeObjectMetadataOidIndexId, true,
-								NULL, 1, entry);
+							  get_LOLOR_LargeObjectMetadataOidIndexId(), true,
+							  NULL, 1, entry);
 
 	tuple = systable_getnext(scan);
 	if (!HeapTupleIsValid(tuple))
@@ -1007,7 +1008,7 @@ lolor_largeobject_aclmask_snapshot(Oid lobj_oid, Oid roleid,
 	/*
 	 * Get the largeobject's ACL from pg_largeobject_metadata
 	 */
-	pg_lo_meta = table_open(LOLOR_LargeObjectMetadataRelationId,
+	pg_lo_meta = table_open(get_LOLOR_LargeObjectMetadataRelationId(),
 							AccessShareLock);
 
 	ScanKeyInit(&entry[0],
@@ -1016,7 +1017,7 @@ lolor_largeobject_aclmask_snapshot(Oid lobj_oid, Oid roleid,
 				ObjectIdGetDatum(lobj_oid));
 
 	scan = systable_beginscan(pg_lo_meta,
-							  LOLOR_LargeObjectMetadataOidIndexId, true,
+							  get_LOLOR_LargeObjectMetadataOidIndexId(), true,
 							  snapshot, 1, entry);
 
 	tuple = systable_getnext(scan);
