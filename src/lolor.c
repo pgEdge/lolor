@@ -24,6 +24,7 @@
 #include "nodes/value.h"
 #include "nodes/print.h"
 #include "utils/builtins.h"
+#include "utils/inval.h"
 #include "utils/guc.h"
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
@@ -132,6 +133,18 @@ lolor_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 }
 
 /*
+ * For the sake of performance, make it simple
+ */
+static void
+relcache_invalidate_callback(Datum arg, Oid reloid)
+{
+	LOLOR_LargeObjectRelationId = InvalidOid;
+	LOLOR_LargeObjectLOidPNIndexId = InvalidOid;
+	LOLOR_LargeObjectMetadataRelationId = InvalidOid;
+	LOLOR_LargeObjectMetadataOidIndexId = InvalidOid;
+}
+
+/*
  * Entry point for this module.
  */
 void
@@ -151,6 +164,12 @@ _PG_init(void)
 	/* register transaction callbacks for cleanup. */
 	RegisterXactCallback(lolor_xact_callback, NULL);
 	RegisterSubXactCallback(lolor_subxact_callback, NULL);
+
+	/*
+	 * Something may change object ID accidentially (REINDEX is a good example).
+	 * So, it is necessary to invalidate cache of Oids.
+	 */
+	CacheRegisterRelcacheCallback(relcache_invalidate_callback, (Datum) 0);
 }
 
 /*

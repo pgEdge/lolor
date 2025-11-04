@@ -54,10 +54,17 @@ REINDEX INDEX CONCURRENTLY lolor.pg_largeobject_pkey;
 REINDEX INDEX CONCURRENTLY lolor.pg_largeobject_metadata_pkey;
 BEGIN;
 SELECT lo_open(:loid, 262144) AS fd \gset
-ERROR:  could not open relation with OID 16399
 SELECT convert_from(loread(:fd, 1024), 'UTF8');
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+     convert_from     
+----------------------
+ Example large object
+(1 row)
+
 SELECT lo_close(:fd);
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ lo_close 
+----------
+        0
+(1 row)
+
 END;
 DROP EXTENSION lolor;
