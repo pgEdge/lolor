@@ -1,11 +1,11 @@
 -- Basic checks
+\set VERBOSITY terse
 LOAD 'lolor';
 SET lolor.node = 1;
 CREATE EXTENSION lolor;
 SELECT lo_creat(-1) AS loid \gset
 SELECT lo_from_bytea(:loid, 'Example large object'); -- ERROR
 ERROR:  duplicate key value violates unique constraint "pg_largeobject_metadata_pkey"
-DETAIL:  Key (oid)=(262769) already exists.
 BEGIN;
 SELECT lo_open(:loid, x'60000'::int) AS fd \gset
 SELECT lowrite(:fd, 'Example large object');
