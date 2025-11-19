@@ -13,9 +13,46 @@ use PostgreSQL::Test::Utils;
 use Test::More;
 
 my $node = PostgreSQL::Test::Cluster->new('main');
-my $result;
+my ($result, $stdout, $stderr);
 
 $node->init;
+
+# ##############################################################################
+#
+# Lolor is loaded dynamically, on demand
+#
+# ##############################################################################
+
+$node->start;
+$node->safe_psql('postgres', "CREATE EXTENSION lolor");
+
+# Check
+($result, $stdout, $stderr) = $node->psql('postgres', qq(
+  SET lolor.node = 0;
+  SELECT lo_creat(-1)
+));
+like($stderr, qr/value for lolor.node is not set/, "Zero value of lolor node is treated as an unset");
+
+$result = $node->safe_psql('postgres', qq(
+  SET lolor.node = 1;
+  SELECT lo_creat(-1);
+));
+ok($result > 0, "Lolor works and produces LO IDs");
+
+$node->safe_psql('postgres', "DROP EXTENSION lolor");
+$result = $node->safe_psql('postgres', qq(
+  SET lolor.node = 0;
+  SELECT lo_creat(-1);
+));
+ok($result > 0, "Lolor has been removed and standard lo_creat routine is used");
+$node->stop();
+
+# ##############################################################################
+#
+# Tests when lolor is loaded statically
+#
+# ##############################################################################
+
 $node->append_conf('postgresql.conf', qq{shared_preload_libraries = 'lolor'});
 $node->start;
 

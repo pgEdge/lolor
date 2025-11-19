@@ -1,4 +1,5 @@
 -- Basic checks
+\set VERBOSITY terse
 LOAD 'lolor';
 SET lolor.node = 1;
 
