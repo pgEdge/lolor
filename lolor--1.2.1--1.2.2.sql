@@ -22,7 +22,7 @@ BEGIN
     RETURN false;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_proc where proname = 'lolor_lo_open') THEN
-    raise NOTICE 'lolor.dsable() has been called before';
+    raise NOTICE 'lolor.disable() has been called before';
     RETURN false;
   END IF;
 
@@ -176,3 +176,27 @@ BEGIN
   RETURN true;
 END;
 $$ LANGUAGE plpgsql STRICT VOLATILE;
+
+--
+-- Check if lolor functions replaces core LO routines at the moment.
+--
+CREATE FUNCTION lolor.is_enabled()
+RETURNS boolean AS $$
+BEGIN
+  -- Doesn't protect a lot but provides a user with meaningful peace of information
+  IF NOT EXISTS (SELECT 1 FROM pg_proc
+                 WHERE proname IN ('lolor_lo_open', 'lo_open_orig')) THEN
+    raise EXCEPTION 'lolor is in inconsistent state';
+  ELSIF EXISTS (SELECT 1 WHERE
+    EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'lolor_lo_open') AND
+	EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'lo_open_orig')) THEN
+    raise EXCEPTION 'lolor is in inconsistent state';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'lolor_lo_open') THEN
+     RETURN false;
+  END IF;
+
+  RETURN true;
+END;
+$$ LANGUAGE plpgsql STRICT STABLE;

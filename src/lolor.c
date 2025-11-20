@@ -188,7 +188,7 @@ _PG_init(void)
  *
  *	We cannot drop our own functions here as the dependencies of
  *	the extension itself won't allow that. Likewise we cannot
- *	drop the origial PostgreSQL functions because the PostgreSQL
+ *	drop the original PostgreSQL functions because the PostgreSQL
  *	system depends on them. But we can get around that with
  *	renaming (which makes no sense).
  */
@@ -247,107 +247,8 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	 */
 	SPI_connect();
 
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_open(oid, int4)"
-				" RENAME TO lo_open_to_drop", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_open_orig(oid, int4)"
-				" RENAME TO lo_open", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_close(int4)"
-				" RENAME TO lo_close_to_drop", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_close_orig(int4)"
-				" RENAME TO lo_close", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_creat(integer)"
-				" RENAME TO lo_creat_to_drop", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_creat_orig(integer)"
-				" RENAME TO lo_creat", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_create(oid)"
-				" RENAME TO lo_create_to_drop", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_create_orig(oid)"
-				" RENAME TO lo_create", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.loread(integer, integer)"
-				" RENAME TO loread_to_drop", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.loread_orig(integer, integer)"
-				" RENAME TO loread", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lowrite(integer, bytea)"
-				" RENAME TO lowrite_to_drop", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lowrite_orig(integer, bytea)"
-				" RENAME TO lowrite", false, 0);
-
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_export(oid, text)"
-				" RENAME TO lo_export_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_export_orig(oid, text)"
-				" RENAME TO lo_export;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_from_bytea(oid, bytea)"
-				" RENAME TO lo_from_bytea_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_from_bytea_orig(oid, bytea)"
-				" RENAME TO lo_from_bytea;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_get(oid)"
-				" RENAME TO lo_get_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_get_orig(oid)"
-				" RENAME TO lo_get;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_get(oid, bigint, integer)"
-				" RENAME TO lo_get_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_get_orig(oid, bigint, integer)"
-				" RENAME TO lo_get;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_import(text)"
-				" RENAME TO lo_import_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_import_orig(text)"
-				" RENAME TO lo_import;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_import(text, oid)"
-				" RENAME TO lo_import_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_import_orig(text, oid)"
-				" RENAME TO lo_import;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_lseek(integer, integer, integer)"
-				" RENAME TO lo_lseek_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_lseek_orig(integer, integer, integer)"
-				" RENAME TO lo_lseek;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_lseek64(integer, bigint, integer)"
-				" RENAME TO lo_lseek64_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_lseek64_orig(integer, bigint, integer)"
-				" RENAME TO lo_lseek64;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_put(oid, bigint, bytea)"
-				" RENAME TO lo_put_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_put_orig(oid, bigint, bytea)"
-				" RENAME TO lo_put;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_tell(integer)"
-				" RENAME TO lo_tell_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_tell_orig(integer)"
-				" RENAME TO lo_tell;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_tell64(integer)"
-				" RENAME TO lo_tell64_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_tell64_orig(integer)"
-				" RENAME TO lo_tell64;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_truncate(integer, integer)"
-				" RENAME TO lo_truncate_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_truncate_orig(integer, integer)"
-				" RENAME TO lo_truncate;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_truncate64(integer, bigint)"
-				" RENAME TO lo_truncate64_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_truncate64_orig(integer, bigint)"
-				" RENAME TO lo_truncate64;", false, 0);
-
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_unlink(oid)"
-				" RENAME TO lo_unlink_to_drop;", false, 0);
-	SPI_execute("ALTER FUNCTION pg_catalog.lo_unlink_orig(oid)"
-				" RENAME TO lo_unlink;", false, 0);
-
+	SPI_execute("SELECT CASE WHEN lolor.is_enabled() THEN lolor.disable() ELSE 'true' END CASE",
+				false, 0);
 	SPI_finish();
 
 	PG_RETURN_NULL();
