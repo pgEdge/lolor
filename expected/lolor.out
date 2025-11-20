@@ -152,4 +152,26 @@ SELECT lolor.enable();
  t
 (1 row)
 
+-- Check that no tails existing after the extension drop in both enabled and
+-- disabled states.
 DROP EXTENSION lolor;
+SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
+  'lolor_lo_open');
+ oid | proname 
+-----+---------
+(0 rows)
+
+CREATE EXTENSION lolor;
+SELECT lolor.disable();
+ disable 
+---------
+ t
+(1 row)
+
+DROP EXTENSION lolor;
+SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
+  'lolor_lo_open');
+ oid | proname 
+-----+---------
+(0 rows)
+
