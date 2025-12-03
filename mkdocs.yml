@@ -52,3 +52,4 @@ nav:
   - lolor Overview: index.md
   - Building and Installing lolor: install_configure.md
   - Using lolor: using_lolor.md
+  - lolor Release Notes: lolor_release_notes.md
