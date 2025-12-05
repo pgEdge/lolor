@@ -52,4 +52,5 @@ nav:
   - lolor Overview: index.md
   - Building and Installing lolor: install_configure.md
   - Using lolor: using_lolor.md
+  - Using pg_upgrade with lolor: pg_upgrade_with_lolor.md
   - lolor Release Notes: lolor_release_notes.md

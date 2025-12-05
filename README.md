@@ -8,6 +8,7 @@ lolor is an extension that makes Postgres' Large Objects compatible with Logical
 - [Basic Configuration](README.md#configuring-lolor)
 - [Using lolor](docs/using_lolor.md)
 - [Limitations](README.md#limitations)
+- [Using pg_upgrade with lolor](docs/pg_upgrade_with_lolor.md)
 - [Release Notes](docs/lolor_release_notes.md)
 
 PostgreSQL supports large objects as related chunks as described in the [pg_largeobject](https://www.postgresql.org/docs/current/catalog-pg-largeobject.html) table. Large objects provide stream-style access to user data stored in a special large-object structure in the catalog. Large objects stored in catalog tables require special handling during replication; the lolor extension allows for the storage of large objects in non-catalog tables, aiding in replication of large objects.
