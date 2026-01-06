@@ -19,7 +19,7 @@
  * memory context given to lolor_inv_open (for LargeObjectDesc structs).
  *
  *
- * Copyright (c) 2022-2025, pgEdge, Inc.
+ * Copyright (c) 2022-2026, pgEdge, Inc.
  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
