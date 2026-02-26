@@ -1,8 +1,6 @@
 # Check streaming replication of lolor large objects
 #
 # Copyright (c) 2022-2026, pgEdge, Inc.
-# Portions Copyright (c) 1996-2026, PostgreSQL Global Development Group
-# Portions Copyright (c) 1994, Regents of the University of California
 #
 
 use strict;
