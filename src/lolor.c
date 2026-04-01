@@ -240,15 +240,46 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 
 	/*
-	 * OK, this is DROP EXTENSION lolor. Rename our own
-	 * functions out of the way (they will later be dropped by the
-	 * DROP EXTENSION itself, and rename the original PostgreSQL
-	 * functions back to what they were.
+	 * OK, this is DROP EXTENSION lolor.
+	 *
+	 * First, migrate any large objects stored in lolor tables back to
+	 * native PostgreSQL storage.  This must happen while lolor is still
+	 * enabled so the _orig functions (native LO API) are available.
+	 * The event trigger fires on ddl_command_start, so lolor tables
+	 * still exist and are readable at this point.
+	 *
+	 * Then rename our replacement functions out of the way and restore
+	 * the original PostgreSQL function names.  The DROP EXTENSION itself
+	 * will then drop the lolor schema and its objects.
+	 *
+	 * Guard the migrate_to_native() call with a pg_proc check so that
+	 * upgrades from versions < 1.2.3 (where the function does not exist)
+	 * do not fail.
 	 */
 	SPI_connect();
 
-	SPI_execute("SELECT CASE WHEN lolor.is_enabled() THEN lolor.disable() ELSE 'true' END CASE",
+	if (SPI_execute("SELECT 1 FROM pg_proc p "
+					 "JOIN pg_namespace n ON n.oid = p.pronamespace "
+					 "WHERE n.nspname = 'lolor' "
+					 "AND p.proname = 'migrate_to_native'",
+					 true, 1) == SPI_OK_SELECT &&
+		SPI_processed > 0)
+	{
+		/*
+		 * If migrate_to_native() fails (e.g. OID conflict), the ERROR
+		 * propagates and aborts the DROP EXTENSION.  This is intentional:
+		 * losing large objects silently is worse than a failed DROP.  The
+		 * user must resolve the conflict and retry.
+		 */
+		if (SPI_execute("SELECT lolor.migrate_to_native()", false, 0) != SPI_OK_SELECT)
+			ereport(ERROR,
+					(errmsg("lolor: failed to migrate large objects back to native storage")));
+	}
+
+	SPI_execute("SELECT CASE WHEN lolor.is_enabled() "
+				"THEN lolor.disable() ELSE true END",
 				false, 0);
+
 	SPI_finish();
 
 	PG_RETURN_NULL();

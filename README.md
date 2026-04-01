@@ -69,8 +69,30 @@ the following commands to add the tables:
 ./pgedge spock repset-add-table spock_replication_set 'lolor.pg_largeobject_metadata' lolor_db
 ```
 
+### Migrating large objects
+
+Migration from native to lolor is **manual**; migration back is **automatic**
+on `DROP EXTENSION` so no objects are ever lost.
+
+Migrate existing native large objects into lolor storage (requires superuser):
+
+```sql
+CREATE EXTENSION lolor;
+SELECT lolor.migrate_from_native();
+```
+
+Reverse migration happens automatically when the extension is dropped, or can
+be triggered manually:
+
+```sql
+SELECT lolor.migrate_to_native();  -- manual
+DROP EXTENSION lolor;              -- automatic
+```
+
+Both directions preserve original OIDs, owners, ACLs, and data.
+
 ### Limitations
 
 - Native large object functionality cannot be used while you are using the lolor extension.
-- Native large object migration to the lolor feature is not available yet.
 - lolor does not support the following statements: `ALTER LARGE OBJECT`, `GRANT ON LARGE OBJECT`, `COMMENT ON LARGE OBJECT`, and `REVOKE ON LARGE OBJECT`.
+- Migration procedures are currently safe only in master-replica configurations. Multi-master migration is not yet supported due to OID encoding constraints.

@@ -217,6 +217,7 @@ SELECT lo_close(:fd);
 
 END;
 DROP EXTENSION lolor;
+NOTICE:  migrated 1 large object(s) from lolor to native storage
 -- Check extension upgrade
 CREATE EXTENSION lolor VERSION '1.0';
 SELECT lo_creat(-1) AS loid \gset
@@ -240,6 +241,37 @@ SELECT convert_from(loread(:fd, 1024), 'UTF8');
 (1 row)
 
 END;
+ALTER EXTENSION lolor UPDATE TO '1.2.3';
+-- Verify migration functions are available after upgrade
+SELECT lolor.migrate_to_native(); -- One LO object has been created before LOLOR
+NOTICE:  migrated 1 large object(s) from lolor to native storage
+ migrate_to_native 
+-------------------
+                 1
+(1 row)
+
+SELECT lolor.migrate_from_native(); -- two objects
+NOTICE:  migrated 2 large object(s) (2 data page(s)) from native to lolor storage
+ migrate_from_native 
+---------------------
+                   2
+(1 row)
+
+-- Repeat conversion cycle - should see the same two objects
+SELECT lolor.migrate_to_native();
+NOTICE:  migrated 2 large object(s) from lolor to native storage
+ migrate_to_native 
+-------------------
+                 2
+(1 row)
+
+SELECT lolor.migrate_from_native();
+NOTICE:  migrated 2 large object(s) (2 data page(s)) from native to lolor storage
+ migrate_from_native 
+---------------------
+                   2
+(1 row)
+
 --
 -- Basic checks for enable/disable routines.
 --
@@ -304,12 +336,15 @@ SELECT lolor.enable();
 -- Check that no tails existing after the extension drop in both enabled and
 -- disabled states.
 DROP EXTENSION lolor;
+NOTICE:  migrated 3 large object(s) from lolor to native storage
 SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
   'lolor_lo_open');
  oid | proname 
 -----+---------
 (0 rows)
 
+-- Check: we can't just delete LOLOR without LO migration in disabled mode.
+-- XXX: should we introduce a 'forced' flag to allow this?
 CREATE EXTENSION lolor;
 SELECT lolor.disable();
  disable 
@@ -318,9 +353,339 @@ SELECT lolor.disable();
 (1 row)
 
 DROP EXTENSION lolor;
-SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
-  'lolor_lo_open');
- oid | proname 
------+---------
-(0 rows)
+ERROR:  lolor must be enabled before migration to native
+SELECT extname FROM pg_extension; -- lolor is here
+ extname 
+---------
+ plpgsql
+ lolor
+(2 rows)
 
+SELECT lolor.enable();
+ enable 
+--------
+ t
+(1 row)
+
+DROP EXTENSION lolor;
+NOTICE:  no lolor large objects to migrate
+SELECT extname FROM pg_extension; -- check lolor removal
+ extname 
+---------
+ plpgsql
+(1 row)
+
+--
+-- Migration tests: migrate_from_native / migrate_to_native / DROP EXTENSION
+--
+-- Start fresh: no extension, create native LOs
+SELECT lo_from_bytea(0, 'Native object number one') AS native_oid1 \gset
+SELECT lo_from_bytea(0, 'Native object number two') AS native_oid2 \gset
+-- Forward migration: expect native_lo_count = 2
+SELECT count(*) AS native_lo_count FROM pg_catalog.pg_largeobject_metadata;
+ native_lo_count 
+-----------------
+               6
+(1 row)
+
+-- Install lolor and migrate native LOs into lolor storage
+CREATE EXTENSION lolor;
+SELECT lolor.migrate_from_native();
+NOTICE:  migrated 6 large object(s) (6 data page(s)) from native to lolor storage
+ migrate_from_native 
+---------------------
+                   6
+(1 row)
+
+-- After forward migration: expect 0 native objects
+SELECT count(*) AS native_after_migrate FROM pg_catalog.pg_largeobject_metadata;
+ native_after_migrate 
+----------------------
+                    0
+(1 row)
+
+SELECT count(*) AS lolor_after_migrate FROM lolor.pg_largeobject_metadata;
+ lolor_after_migrate 
+---------------------
+                   6
+(1 row)
+
+-- Data integrity: expect "Native object number one"
+BEGIN;
+SELECT lo_open(:'native_oid1'::oid, 262144) AS fd \gset
+SELECT convert_from(loread(:fd, 1024), 'UTF8') AS obj1_data;
+        obj1_data         
+--------------------------
+ Native object number one
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
+(1 row)
+
+END;
+-- Data integrity: expect "Native object number two"
+BEGIN;
+SELECT lo_open(:'native_oid2'::oid, 262144) AS fd \gset
+SELECT convert_from(loread(:fd, 1024), 'UTF8') AS obj2_data;
+        obj2_data         
+--------------------------
+ Native object number two
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
+(1 row)
+
+END;
+-- Create an additional LO directly in lolor storage
+SELECT lo_from_bytea(0, 'Created directly in lolor') AS lolor_direct_oid \gset
+-- Reverse migration via DROP EXTENSION
+DROP EXTENSION lolor;
+NOTICE:  migrated 7 large object(s) from lolor to native storage
+SELECT count(*) AS native_after_drop FROM pg_catalog.pg_largeobject_metadata;
+ native_after_drop 
+-------------------
+                 7
+(1 row)
+
+-- After DROP: expect "Native object number one"
+SELECT convert_from(lo_get(:'native_oid1'::oid), 'UTF8') AS obj1_after_reverse;
+    obj1_after_reverse    
+--------------------------
+ Native object number one
+(1 row)
+
+-- After DROP: expect "Native object number two"
+SELECT convert_from(lo_get(:'native_oid2'::oid), 'UTF8') AS obj2_after_reverse;
+    obj2_after_reverse    
+--------------------------
+ Native object number two
+(1 row)
+
+-- After DROP: expect "Created directly in lolor"
+SELECT convert_from(lo_get(:'lolor_direct_oid'::oid), 'UTF8') AS obj3_after_reverse;
+    obj3_after_reverse     
+---------------------------
+ Created directly in lolor
+(1 row)
+
+-- Cleanup native LOs
+SELECT lo_unlink(:'native_oid1'::oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lo_unlink(:'native_oid2'::oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lo_unlink(:'lolor_direct_oid'::oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+CREATE EXTENSION lolor;
+SELECT lolor.migrate_from_native();
+NOTICE:  migrated 4 large object(s) (4 data page(s)) from native to lolor storage
+ migrate_from_native 
+---------------------
+                   4
+(1 row)
+
+DROP EXTENSION lolor;
+NOTICE:  migrated 4 large object(s) from lolor to native storage
+--
+-- Manual migrate_to_native (not via DROP EXTENSION)
+--
+CREATE EXTENSION lolor;
+SELECT lo_from_bytea(0, 'Manual reverse test') AS manual_oid \gset
+SELECT lolor.migrate_to_native();
+NOTICE:  migrated 1 large object(s) from lolor to native storage
+ migrate_to_native 
+-------------------
+                 1
+(1 row)
+
+SELECT count(*) AS native_after_manual FROM pg_catalog.pg_largeobject_metadata;
+ native_after_manual 
+---------------------
+                   5
+(1 row)
+
+SELECT count(*) AS lolor_after_manual FROM lolor.pg_largeobject_metadata;
+ lolor_after_manual 
+--------------------
+                  0
+(1 row)
+
+-- After manual migration: expect "Manual reverse test"
+BEGIN;
+-- Disable lolor to read from native storage directly
+SELECT lolor.disable();
+ disable 
+---------
+ t
+(1 row)
+
+SELECT convert_from(lo_get(:'manual_oid'::oid), 'UTF8') AS manual_data;
+     manual_data     
+---------------------
+ Manual reverse test
+(1 row)
+
+END;
+-- Cleanup
+SELECT lo_unlink(:'manual_oid'::oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lolor.enable();
+ enable 
+--------
+ t
+(1 row)
+
+DROP EXTENSION lolor;
+NOTICE:  no lolor large objects to migrate
+--
+-- OID conflict detection
+--
+-- OID conflict: migrate_from_native should ERROR on duplicate OID
+SELECT lo_from_bytea(0, 'Conflict test object') AS conflict_oid \gset
+CREATE EXTENSION lolor;
+-- HACK: Manually insert a row with the same OID into lolor storage
+INSERT INTO lolor.pg_largeobject_metadata (oid, lomowner, lomacl)
+  VALUES (:'conflict_oid', (SELECT oid FROM pg_roles WHERE rolname = current_user), NULL);
+-- This should fail with OID conflict
+SELECT lolor.migrate_from_native();
+ERROR:  OID conflict: some native large objects already exist in lolor storage
+-- Cleanup: remove the conflicting row and drop cleanly
+DELETE FROM lolor.pg_largeobject_metadata WHERE oid = :'conflict_oid';
+DROP EXTENSION lolor;
+NOTICE:  no lolor large objects to migrate
+SELECT lo_unlink(:'conflict_oid'::oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+-- OID conflict: migrate_to_native should ERROR on duplicate OID
+CREATE EXTENSION lolor;
+SELECT lo_from_bytea(0, 'Lolor side object') AS conflict_oid2 \gset
+-- Disable lolor to create a native LO with the same OID
+SELECT lolor.disable();
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_create(:'conflict_oid2') AS created_oid \gset
+-- Verify native lo_create honored the explicit OID
+SELECT :'created_oid' = :'conflict_oid2' AS oid_matches;
+ oid_matches 
+-------------
+ t
+(1 row)
+
+SELECT lolor.enable();
+ enable 
+--------
+ t
+(1 row)
+
+-- migrate_to_native should detect the collision
+SELECT lolor.migrate_to_native();
+ERROR:  OID conflict: some lolor large objects already exist in native storage
+-- Cleanup: remove the native duplicate, then drop cleanly
+SELECT lolor.disable();
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_unlink(:'conflict_oid2'::oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lolor.enable();
+ enable 
+--------
+ t
+(1 row)
+
+DROP EXTENSION lolor;
+NOTICE:  migrated 1 large object(s) from lolor to native storage
+-- DROP EXTENSION should be rejected when migrate_to_native has OID conflict
+CREATE EXTENSION lolor;
+SELECT lo_from_bytea(0, 'Drop conflict test') AS drop_conflict_oid \gset
+-- Create a native LO with the same OID to force conflict at DROP time
+SELECT lolor.disable();
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_create(:'drop_conflict_oid');
+ lo_create 
+-----------
+    268385
+(1 row)
+
+SELECT lolor.enable();
+ enable 
+--------
+ t
+(1 row)
+
+-- DROP EXTENSION should ERROR to prevent data loss
+DROP EXTENSION lolor;
+ERROR:  OID conflict: some lolor large objects already exist in native storage
+-- Extension should still be installed
+SELECT extname FROM pg_extension WHERE extname = 'lolor';
+ extname 
+---------
+ lolor
+(1 row)
+
+-- Objects should be in place
+SELECT count(*) FROM lolor.pg_largeobject;
+ count 
+-------
+     1
+(1 row)
+
+-- Resolve the conflict: remove the native duplicate, then retry
+SELECT lolor.disable();
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_unlink(:'drop_conflict_oid'::oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lolor.enable();
+ enable 
+--------
+ t
+(1 row)
+
+-- Now DROP should succeed
+DROP EXTENSION lolor;
+NOTICE:  migrated 1 large object(s) from lolor to native storage
