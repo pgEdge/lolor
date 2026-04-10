@@ -560,6 +560,7 @@ lolor_inv_read(LargeObjectDesc *obj_desc, char *buf, int nbytes)
 			{
 				n = len - off;
 				n = (n <= (nbytes - nread)) ? n : (nbytes - nread);
+				Assert(n > 0 && n <= nbytes - nread && n <= len - off);
 				memcpy(buf + nread, VARDATA(datafield) + off, n);
 				nread += n;
 				obj_desc->offset += n;
@@ -678,6 +679,7 @@ lolor_inv_write(LargeObjectDesc *obj_desc, const char *buf, int nbytes)
 			 * First, load old data into workbuf
 			 */
 			getdatafield(olddata, &datafield, &len, &pfreeit);
+			Assert(len >= 0 && len <= LOBLKSIZE);	/* validated by getdatafield() */
 			memcpy(workb, VARDATA(datafield), len);
 			if (pfreeit)
 				pfree(datafield);
@@ -694,6 +696,8 @@ lolor_inv_write(LargeObjectDesc *obj_desc, const char *buf, int nbytes)
 			 */
 			n = LOBLKSIZE - off;
 			n = (n <= (nbytes - nwritten)) ? n : (nbytes - nwritten);
+			Assert(n > 0 && off + n <= LOBLKSIZE);	/* destination fits in workbuf page */
+			Assert(n <= nbytes - nwritten);			/* source fits in caller's buffer */
 			memcpy(workb + off, buf + nwritten, n);
 			nwritten += n;
 			obj_desc->offset += n;
@@ -739,6 +743,8 @@ lolor_inv_write(LargeObjectDesc *obj_desc, const char *buf, int nbytes)
 			 */
 			n = LOBLKSIZE - off;
 			n = (n <= (nbytes - nwritten)) ? n : (nbytes - nwritten);
+			Assert(n > 0 && off + n <= LOBLKSIZE);	/* destination fits in workbuf page */
+			Assert(n <= nbytes - nwritten);			/* source fits in caller's buffer */
 			memcpy(workb + off, buf + nwritten, n);
 			nwritten += n;
 			obj_desc->offset += n;
@@ -863,6 +869,7 @@ lolor_inv_truncate(LargeObjectDesc *obj_desc, int64 len)
 		bool		pfreeit;
 
 		getdatafield(olddata, &datafield, &pagelen, &pfreeit);
+		Assert(pagelen >= 0 && pagelen <= LOBLKSIZE);	/* validated by getdatafield() */
 		memcpy(workb, VARDATA(datafield), pagelen);
 		if (pfreeit)
 			pfree(datafield);

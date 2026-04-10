@@ -489,7 +489,7 @@ lo_import_internal(text *filename, Oid lobjOid)
 	 */
 	lobj = lolor_inv_open(oid, INV_WRITE, CurrentMemoryContext);
 
-	while ((nbytes = read(fd, buf, BUFSIZE)) > 0)
+	while ((nbytes = read(fd, buf, BUFSIZE)) > 0)	/* Flawfinder: ignore */
 	{
 		tmp = lolor_inv_write(lobj, buf, nbytes);
 		Assert(tmp == nbytes);
@@ -543,7 +543,7 @@ lolor_lo_export(PG_FUNCTION_ARGS)
 	 * world-writable export files doesn't seem wise.
 	 */
 	text_to_cstring_buffer(filename, fnamebuf, sizeof(fnamebuf));
-	oumask = umask(S_IWGRP | S_IWOTH);
+	oumask = umask(S_IWGRP | S_IWOTH);	/* Flawfinder: ignore — matches core be-fsstubs.c intentionally */
 	PG_TRY();
 	{
 		fd = OpenTransientFilePerm(fnamebuf, O_CREAT | O_WRONLY | O_TRUNC | PG_BINARY,
@@ -551,7 +551,7 @@ lolor_lo_export(PG_FUNCTION_ARGS)
 	}
 	PG_FINALLY();
 	{
-		umask(oumask);
+		umask(oumask);	/* Flawfinder: ignore — restoring previous mask */
 	}
 	PG_END_TRY();
 	if (fd < 0)
