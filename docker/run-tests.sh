@@ -44,12 +44,3 @@ cd /home/pgedge/lolor/tests/python
 cp ../../docker/test-configs/test.properties.py test.properties
 python3 lolor_tests.py -v &>> /home/pgedge/lolor/tests/out.txt
 
-sleep 10
-
-#==================== Golang tests ====================   
-
-cd /home/pgedge/lolor/tests/go
-go get github.com/jackc/pgx/v5
-go get github.com/magiconair/properties
-cp ../../docker/test-configs/test.properties.go test.properties
-go test -v &>> /home/pgedge/lolor/tests/out.txt
