@@ -69,6 +69,108 @@ $result = $subscriber->safe_psql('postgres', qq(
 is($result, 'post-subscription LO',
 	"Post-subscription LO replicated via logical streaming");
 
+# lo_lseek: seek to offset 15, overwrite 11 bytes, verify on both nodes
+$publisher->safe_psql('postgres',
+	qq(SELECT lo_from_bytea(3, '0123456789abcdefghijklmnopqrstuvwxyz')));
+$publisher->safe_psql('postgres', qq(
+	BEGIN;
+	SELECT lo_open(3, x'60000'::int) AS fd \\gset
+	SELECT lo_lseek(:fd, 15, 0);
+	SELECT lowrite(:fd, '<ADDEDDATA>');
+	SELECT lo_close(:fd);
+	END;
+));
+$publisher->wait_for_catchup('lolor_sub');
+
+$result = $publisher->safe_psql('postgres', qq(
+	BEGIN;
+	SELECT lo_open(3, 262144) AS fd \\gset
+	SELECT convert_from(loread(:fd, 1024), 'UTF8');
+	END;
+));
+is($result, '0123456789abcde<ADDEDDATA>qrstuvwxyz',
+	"lo_lseek: overwritten content correct on publisher");
+
+$result = $subscriber->safe_psql('postgres', qq(
+	BEGIN;
+	SELECT lo_open(3, 262144) AS fd \\gset
+	SELECT convert_from(loread(:fd, 1024), 'UTF8');
+	END;
+));
+is($result, '0123456789abcde<ADDEDDATA>qrstuvwxyz',
+	"lo_lseek: seeked/overwritten content replicated to subscriber");
+
+# lo_tell: verify cursor positions (publisher only — tell is a local cursor op).
+# Two separate transactions: first confirms position is 0 on a fresh open;
+# second confirms position advances to 11 after writing 11 bytes.
+$publisher->safe_psql('postgres',
+	qq(SELECT lo_from_bytea(4, '0123456789abcdefghijklmnopqrstuvwxyz')));
+
+# \gset suppresses lo_open output; only lo_tell and lo_close print a row each.
+my $pos = $publisher->safe_psql('postgres', qq(
+	BEGIN;
+	SELECT lo_open(4, 262144) AS fd \\gset
+	SELECT lo_tell(:fd);
+	SELECT lo_close(:fd);
+	END;
+));
+is((split /\n/, $pos)[0], '0', "lo_tell: position at open is 0");
+
+# lowrite prints one row, then lo_tell prints one row, then lo_close one row.
+$pos = $publisher->safe_psql('postgres', qq(
+	BEGIN;
+	SELECT lo_open(4, x'60000'::int) AS fd \\gset
+	SELECT lowrite(:fd, '<ADDEDDATA>');
+	SELECT lo_tell(:fd);
+	SELECT lo_close(:fd);
+	END;
+));
+is((split /\n/, $pos)[1], '11', "lo_tell: position after 11-byte write is 11");
+
+# lo_truncate: truncate to 10 bytes, verify prefix on both nodes
+$publisher->safe_psql('postgres',
+	qq(SELECT lo_from_bytea(5, '0123456789abcdefghijklmnopqrstuvwxyz')));
+$publisher->safe_psql('postgres', qq(
+	BEGIN;
+	SELECT lo_open(5, x'60000'::int) AS fd \\gset
+	SELECT lo_truncate(:fd, 10);
+	SELECT lo_close(:fd);
+	END;
+));
+$publisher->wait_for_catchup('lolor_sub');
+
+$result = $publisher->safe_psql('postgres', qq(
+	BEGIN;
+	SELECT lo_open(5, 262144) AS fd \\gset
+	SELECT convert_from(loread(:fd, 1024), 'UTF8');
+	END;
+));
+is($result, '0123456789', "lo_truncate: only prefix survives on publisher");
+
+$result = $subscriber->safe_psql('postgres', qq(
+	BEGIN;
+	SELECT lo_open(5, 262144) AS fd \\gset
+	SELECT convert_from(loread(:fd, 1024), 'UTF8');
+	END;
+));
+is($result, '0123456789', "lo_truncate: truncated content replicated to subscriber");
+
+# Catalog consistency: pg_largeobject_metadata and pg_largeobject row counts
+# must match between publisher and subscriber after all operations.
+my $pub_meta = $publisher->safe_psql('postgres',
+	"SELECT count(*) FROM lolor.pg_largeobject_metadata");
+my $sub_meta = $subscriber->safe_psql('postgres',
+	"SELECT count(*) FROM lolor.pg_largeobject_metadata");
+is($sub_meta, $pub_meta,
+	"catalog consistency: pg_largeobject_metadata row count matches across nodes");
+
+my $pub_lo = $publisher->safe_psql('postgres',
+	"SELECT count(*) FROM lolor.pg_largeobject");
+my $sub_lo = $subscriber->safe_psql('postgres',
+	"SELECT count(*) FROM lolor.pg_largeobject");
+is($sub_lo, $pub_lo,
+	"catalog consistency: pg_largeobject row count matches across nodes");
+
 $subscriber->stop;
 $publisher->stop;
 
