@@ -127,6 +127,19 @@ $pos = $publisher->safe_psql('postgres', qq(
 ));
 is((split /\n/, $pos)[1], '11', "lo_tell: position after 11-byte write is 11");
 
+$publisher->wait_for_catchup('lolor_sub');
+
+$pos = $subscriber->safe_psql('postgres', qq(
+	BEGIN;
+	SELECT lo_open(4, x'60000'::int) AS fd \\gset
+	SELECT lowrite(:fd, '<ADDEDDATA>');
+	SELECT lo_tell(:fd);
+	SELECT lo_close(:fd);
+	END;
+));
+is((split /\n/, $pos)[1], '11',
+	"lo_tell: position after 11-byte write is 11 on subscriber");
+
 # lo_truncate: truncate to 10 bytes, verify prefix on both nodes
 $publisher->safe_psql('postgres',
 	qq(SELECT lo_from_bytea(5, '0123456789abcdefghijklmnopqrstuvwxyz')));
