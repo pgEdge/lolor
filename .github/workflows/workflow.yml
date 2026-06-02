@@ -43,6 +43,16 @@ jobs:
       env:
         PG_VER: ${{ matrix.pgver }}
 
+    - name: Dump container logs on failure
+      if: failure()
+      run: |
+        cd docker
+        docker compose logs --no-color || true
+        for c in n1 n2 n3 tester; do
+          echo "===== $c ====="
+          docker logs "$c" 2>&1 || true
+        done
+
     - name: Wait for tests to complete
       id: test_step
       continue-on-error: true
