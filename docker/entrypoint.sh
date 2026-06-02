@@ -43,9 +43,17 @@ done
 ./pgedge spock sub-add-repset sub_${peer_names[0]}$HOSTNAME demo_replication_set demo
 ./pgedge spock sub-add-repset sub_${peer_names[1]}$HOSTNAME demo_replication_set demo
 
-cd /home/pgedge/lolor
-make USE_PGXS=1
-make USE_PGXS=1 install
+# Build out of the bind-mounted source tree.  The mount may not be writable
+# by this user (host ownership / SELinux labeling), so copy to a writable
+# location first.
+rm -rf /tmp/lolor-build
+cp -a /home/pgedge/lolor /tmp/lolor-build
+cd /tmp/lolor-build
+# with_llvm=no skips JIT bitcode generation.  The platform expects a specific
+# LLVM version (llvm-lto) that may not match the base image's installed LLVM,
+# and JIT bitcode is irrelevant for these functional tests.
+make USE_PGXS=1 with_llvm=no
+make USE_PGXS=1 with_llvm=no install
 
 psql -U admin -d demo -h /tmp <<_EOF_
 drop extension lolor;
