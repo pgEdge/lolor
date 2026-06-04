@@ -1,4 +1,4 @@
-/* lolor--1.2.2--1.3.sql */
+/* lolor--1.2.2--1.3.0.sql */
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "ALTER EXTENSION lolor UPDATE" to load this file. \quit
