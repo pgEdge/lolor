@@ -105,7 +105,7 @@ BEGIN;
 SELECT lo_open(:loid, 262144) AS fd \gset
 SELECT convert_from(loread(:fd, 1024), 'UTF8');
 END;
-ALTER EXTENSION lolor UPDATE TO '1.3';
+ALTER EXTENSION lolor UPDATE TO '1.3.0';
 -- Verify migration functions are available after upgrade
 SELECT lolor.migrate_to_native(); -- One LO object has been created before LOLOR
 SELECT lolor.migrate_from_native(); -- two objects

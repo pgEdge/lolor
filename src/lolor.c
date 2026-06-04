@@ -253,7 +253,7 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	 * will then drop the lolor schema and its objects.
 	 *
 	 * Guard the migrate_to_native() call with a pg_proc check so that
-	 * upgrades from versions < 1.3 (where the function does not exist)
+	 * upgrades from versions < 1.3.0 (where the function does not exist)
 	 * do not fail.
 	 */
 	SPI_connect();
