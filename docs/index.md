@@ -62,4 +62,4 @@ Both paths preserve OIDs, owners, ACLs, and data.
 
 - Native Postgres large object functionality cannot be used while you are using the lolor extension.
 - lolor does not support the following statements: `ALTER LARGE OBJECT`, `GRANT ON LARGE OBJECT`, `COMMENT ON LARGE OBJECT`, and `REVOKE ON LARGE OBJECT`.
-- The migration procedures (`migrate_from_native`, `migrate_to_native`) are currently safe only in master-replica configurations. In multi-master setups, migrated OIDs (which lack node-encoding) may conflict with OIDs on other nodes.
+- Large object migration must be performed from a single writer. Run `migrate_from_native()` on one node and let the migrated rows replicate to the other nodes (or add nodes afterward); the migrated objects and any newly created large objects are then collision-free, since new OIDs are node-encoded via `lolor.node` and generated OIDs are checked against existing rows. Running `migrate_from_native()` independently on more than one already-active node is not supported, because migrated objects preserve their original native OIDs (which lack node-encoding) and can collide across nodes.
