@@ -58,8 +58,23 @@ SELECT lolor.migrate_to_native();
 
 Both paths preserve OIDs, owners, ACLs, and data.
 
+When the spock extension is installed, both migration functions run under
+`spock.repair_mode()`, so the row-shuffling migration DML is **not** replicated
+to other nodes.  This is essential for `migrate_to_native()`: its deletes from
+the lolor tables would otherwise replicate while the native re-creation stayed
+local, destroying large objects on the other nodes.
+
+Without spock, the migration DML cannot be excluded from logical decoding, so
+both functions refuse to migrate while logical replication slots exist in the
+database: `migrate_from_native()` raises a `WARNING` and returns -1 without
+doing anything (0 is reserved for "nothing to migrate"), while
+`migrate_to_native()` (and therefore `DROP EXTENSION lolor`) raises an
+`ERROR`.  Drop all logical replication slots before
+migrating; merely disabling a subscription is not sufficient, since its slot
+retains the changes and delivers them when replication resumes.
+
 ## Limitations
 
 - Native Postgres large object functionality cannot be used while you are using the lolor extension.
 - lolor does not support the following statements: `ALTER LARGE OBJECT`, `GRANT ON LARGE OBJECT`, `COMMENT ON LARGE OBJECT`, and `REVOKE ON LARGE OBJECT`.
-- Large object migration must be performed from a single writer. Run `migrate_from_native()` on one node and let the migrated rows replicate to the other nodes (or add nodes afterward); the migrated objects and any newly created large objects are then collision-free, since new OIDs are node-encoded via `lolor.node` and generated OIDs are checked against existing rows. Running `migrate_from_native()` independently on more than one already-active node is not supported, because migrated objects preserve their original native OIDs (which lack node-encoding) and can collide across nodes.
+- Large object migration is node-local. Native large objects live in `pg_catalog.pg_largeobject`, which is never replicated, so each node holds an independent set and `migrate_from_native()` migrates only the local node's objects; with spock installed, the migration DML runs in repair mode and is not replicated. Run the migration on every node that holds native large objects — for example with `spock.replicate_ddl('SELECT lolor.migrate_from_native()')`, which queues the command so that each node executes it locally. Migrated objects keep their original native OIDs, which are not node-encoded: if different nodes hold different objects under the same OID, the nodes' lolor contents will diverge and later replicated changes to those objects can conflict. Newly created large objects are collision-free, since new OIDs are node-encoded via `lolor.node` and checked against existing rows.
