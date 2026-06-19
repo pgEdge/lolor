@@ -25,8 +25,20 @@ $$;
  * all changes and no data is lost.
  *
  * Returns the number of large objects migrated, or -1 if migration was
- * refused because logical replication slots exist and spock is not
- * available to suppress replication of the migration DML.
+ * refused because logical replication slots exist whose decoding of the
+ * migration DML cannot be suppressed: either spock is not available to
+ * silence its own slots, or a non-spock slot (e.g. pgoutput, wal2json) is
+ * present that spock.repair_mode() cannot exclude.
+ *
+ * Refusal is reported as a soft -1 return (alongside a WARNING), not an
+ * error, and this asymmetry with migrate_to_native() is deliberate.  This
+ * function is a manual, non-destructive operation: on refusal the native
+ * large objects are left untouched, so the caller can drop the offending
+ * slots and simply retry.
+ *
+ * Callers acting on the result MUST check for a non-positive return: a -1
+ * means nothing was migrated, and ignoring it treats a refused migration
+ * as success.
  */
 CREATE FUNCTION lolor.migrate_from_native()
 RETURNS bigint AS $$
@@ -37,6 +49,7 @@ DECLARE
   native_page_count bigint;
   repair_enabled    boolean := false;
   lr_slots_exists   boolean := false;
+  foreign_lr_slots_exists boolean := false;
 BEGIN
   -- Only superusers can read pg_largeobject.data and unlink others' objects
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper) THEN
@@ -72,6 +85,14 @@ BEGIN
     WHERE slot_type = 'logical' AND database = current_database()
   ) INTO lr_slots_exists;
 
+  -- XXX: there are no evidence that the 'spock' name has been used anywhere.
+  -- Fix this mess later.
+  SELECT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_replication_slots
+    WHERE slot_type = 'logical' AND database = current_database()
+      AND plugin NOT IN ('spock_output', 'spock')
+  ) INTO foreign_lr_slots_exists;
+
   -- Suppress spock replication of the bulk migration DML.  The migration only
   -- shuffles rows between native and lolor storage on this node.
   --
@@ -88,6 +109,19 @@ BEGIN
      AND to_regprocedure('spock.repair_mode(boolean)') IS NOT NULL
      AND current_setting('spock.replication_repair_mode', true) IS NOT NULL
   THEN
+    -- If a non-spock logical slot is present its consumer would still decode
+    -- the bulk migration DML and receive the node-local row shuffling.
+    -- Refuse rather than leak the migration to that subscriber.
+    IF foreign_lr_slots_exists THEN
+      RAISE WARNING 'not migrating: non-spock logical replication slot(s) exist'
+        USING DETAIL = 'This call is a no-op: no large objects were migrated. '
+                       'spock repair mode cannot exclude the migration DML from '
+                       'non-spock output plugins (e.g. pgoutput, wal2json), so the '
+                       'migrated rows would leak to those subscribers',
+              HINT = 'Drop all non-spock logical replication slots in this database before executing this procedure';
+      RETURN -1;
+    END IF;
+
     IF current_setting('spock.replication_repair_mode', true) = 'off' THEN
       PERFORM spock.repair_mode(true);
       repair_enabled := true;
@@ -163,7 +197,10 @@ $$ LANGUAGE plpgsql VOLATILE;
  * The _orig functions (native LO API) must be available, which means lolor
  * must be in the enabled state.
  *
- * Returns the number of large objects migrated.
+ * Returns the number of large objects migrated. RAISEs an ERROR if something
+ * goes wrong.
+ * The hard failure is deliberate: accidental ignore of a failure may result in
+ * loosing LOs. So, user must solve the issue manually before moving forward.
  */
 CREATE FUNCTION lolor.migrate_to_native()
 RETURNS bigint AS $$
@@ -175,6 +212,7 @@ DECLARE
   fd              integer;
   repair_enabled  boolean := false;
   lr_slots_exists boolean := false;
+  foreign_lr_slots_exists boolean := false;
 BEGIN
   -- Only superusers can UPDATE pg_catalog.pg_largeobject_metadata
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper) THEN
@@ -214,6 +252,15 @@ BEGIN
     WHERE slot_type = 'logical' AND database = current_database()
   ) INTO lr_slots_exists;
 
+  -- A logical slot whose output plugin is not spock's own cannot be silenced
+  -- by spock.repair_mode().  Track those separately: their consumers would
+  -- still decode the migration DML even when spock is fully operational.
+  SELECT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_replication_slots
+    WHERE slot_type = 'logical' AND database = current_database()
+      AND plugin NOT IN ('spock_output', 'spock')
+  ) INTO foreign_lr_slots_exists;
+
   -- Suppress spock replication of the bulk migration DML.  The migration only
   -- shuffles rows between lolor and native storage on this node.
   --
@@ -231,6 +278,20 @@ BEGIN
      AND to_regprocedure('spock.repair_mode(boolean)') IS NOT NULL
      AND current_setting('spock.replication_repair_mode', true) IS NOT NULL
   THEN
+    -- spock.repair_mode() only suppresses spock's own output plugin
+    -- ('spock_output'/'spock').  If a non-spock logical slot is present
+    -- (pgoutput, wal2json, decoderbufs, ...) its consumer would still decode
+    -- the migration DML: the lolor deletes would replicate while the
+    -- re-created native large objects would not, losing LOs on the subscriber.
+    IF foreign_lr_slots_exists THEN
+      RAISE EXCEPTION 'cannot migrate LOs to pg_catalog: non-spock logical replication slot(s) exist'
+        USING DETAIL = 'spock repair mode only silences spock''s own output plugin; '
+                       'a non-spock slot (e.g. pgoutput, wal2json) would replicate the '
+                       'lolor deletes while the re-created native large objects would not, '
+                       'losing large objects on the subscriber side',
+              HINT = 'Drop all non-spock logical replication slots in this database before executing this procedure';
+    END IF;
+
     IF current_setting('spock.replication_repair_mode', true) = 'off' THEN
       PERFORM spock.repair_mode(true);
       repair_enabled := true;
