@@ -97,6 +97,12 @@ replicated to other nodes. This is essential for `migrate_to_native()`: its
 deletes from the lolor tables would otherwise replicate while the native
 re-creation stayed local, destroying large objects on the other nodes.
 
+Even with spock, migration is refused if a non-spock logical replication slot
+(e.g. `pgoutput`, `wal2json`) exists, since repair mode only suppresses spock's
+own output plugin and those consumers would still decode the migration DML:
+`migrate_to_native()` raises an `ERROR`, while `migrate_from_native()` warns and
+returns -1 without doing anything. Drop the offending slots before migrating.
+
 Without spock, the migration DML cannot be excluded from logical decoding, so
 both functions refuse to migrate while logical replication slots exist in the
 database: `migrate_from_native()` raises a `WARNING` and returns -1 without
