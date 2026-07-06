@@ -335,7 +335,7 @@ lolor_inv_open(Oid lobjId, int flags, MemoryContext mcxt)
 void
 lolor_inv_close(LargeObjectDesc *obj_desc)
 {
-	Assert(PointerIsValid(obj_desc));
+	Assert(obj_desc);
 	pfree(obj_desc);
 }
 
@@ -382,7 +382,7 @@ inv_getsize(LargeObjectDesc *obj_desc)
 	SysScanDesc sd;
 	HeapTuple	tuple;
 
-	Assert(PointerIsValid(obj_desc));
+	Assert(obj_desc);
 
 	open_lo_relation();
 
@@ -427,7 +427,7 @@ lolor_inv_seek(LargeObjectDesc *obj_desc, int64 offset, int whence)
 {
 	int64		newoffset;
 
-	Assert(PointerIsValid(obj_desc));
+	Assert(obj_desc);
 
 	/*
 	 * We allow seek/tell if you have either read or write permission, so no
@@ -474,7 +474,7 @@ lolor_inv_seek(LargeObjectDesc *obj_desc, int64 offset, int whence)
 int64
 lolor_inv_tell(LargeObjectDesc *obj_desc)
 {
-	Assert(PointerIsValid(obj_desc));
+	Assert(obj_desc);
 
 	/*
 	 * We allow seek/tell if you have either read or write permission, so no
@@ -497,7 +497,7 @@ lolor_inv_read(LargeObjectDesc *obj_desc, char *buf, int nbytes)
 	SysScanDesc sd;
 	HeapTuple	tuple;
 
-	Assert(PointerIsValid(obj_desc));
+	Assert(obj_desc);
 	Assert(buf != NULL);
 
 	if ((obj_desc->flags & IFS_RDLOCK) == 0)
@@ -608,7 +608,7 @@ lolor_inv_write(LargeObjectDesc *obj_desc, const char *buf, int nbytes)
 	bool		replace[Natts_pg_largeobject];
 	CatalogIndexState indstate;
 
-	Assert(PointerIsValid(obj_desc));
+	Assert(obj_desc);
 	Assert(buf != NULL);
 
 	/* enforce writability because snapshot is probably wrong otherwise */
@@ -804,7 +804,7 @@ lolor_inv_truncate(LargeObjectDesc *obj_desc, int64 len)
 	bool		replace[Natts_pg_largeobject];
 	CatalogIndexState indstate;
 
-	Assert(PointerIsValid(obj_desc));
+	Assert(obj_desc);
 
 	/* enforce writability because snapshot is probably wrong otherwise */
 	if ((obj_desc->flags & IFS_WRLOCK) == 0)
