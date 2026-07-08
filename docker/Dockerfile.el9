@@ -10,7 +10,8 @@
 # in as build args, so docker layer caching rebuilds only when a new
 # release is tagged.  When left empty (e.g. a local build), they resolve
 # here to the latest release: for PostgreSQL the newest REL_$PGVER_x minor
-# tag, for Spock the newest vMAJOR.MINOR.PATCH tag (numeric version order,
+# tag (falling back to the newest RC, then BETA, for a pre-GA major), for
+# Spock the newest vMAJOR.MINOR.PATCH tag (numeric version order,
 # pre-releases excluded).
 ARG BASE_IMAGE=ghcr.io/pgedge/base-test-image:latest
 FROM ${BASE_IMAGE}
@@ -24,6 +25,7 @@ ENV PG_VER=$PGVER
 USER pgedge
 WORKDIR /home/pgedge
 
+# SPOCK_TAG may be a release tag, a branch name or a commit SHA
 RUN set -eux && \
     if [ -z "${SPOCK_TAG}" ]; then \
         SPOCK_TAG=$(git ls-remote --tags https://github.com/pgEdge/spock.git | \
@@ -32,15 +34,20 @@ RUN set -eux && \
             sort -V | tail -n 1); \
     fi && \
     echo "Building Spock ${SPOCK_TAG}" && \
-    git clone --branch "${SPOCK_TAG}" --depth 1 \
-        https://github.com/pgEdge/spock.git /home/pgedge/spock
+    mkdir /home/pgedge/spock && \
+    cd /home/pgedge/spock && \
+    git init -q && \
+    git remote add origin https://github.com/pgEdge/spock.git && \
+    git fetch --depth 1 origin "${SPOCK_TAG}" && \
+    git checkout -q FETCH_HEAD
 
 RUN set -eux && \
     if [ -z "${PG_TAG}" ]; then \
-        PG_TAG=$(git ls-remote --tags https://github.com/postgres/postgres.git "REL_${PGVER}_*" | \
-            awk -F/ '{print $NF}' | \
-            grep -E "^REL_${PGVER}_[0-9]+$" | \
-            sort -t_ -k3,3n | tail -n 1); \
+        PG_TAGS=$(git ls-remote --tags https://github.com/postgres/postgres.git "REL_${PGVER}_*" | \
+            awk -F/ '{print $NF}' | grep -v '\^{}'); \
+        PG_TAG=$(echo "${PG_TAGS}" | grep -E "^REL_${PGVER}_[0-9]+$" | sort -t_ -k3,3n | tail -n 1); \
+        [ -n "${PG_TAG}" ] || PG_TAG=$(echo "${PG_TAGS}" | grep -E "^REL_${PGVER}_RC[0-9]+$" | sort -V | tail -n 1); \
+        [ -n "${PG_TAG}" ] || PG_TAG=$(echo "${PG_TAGS}" | grep -E "^REL_${PGVER}_BETA[0-9]+$" | sort -V | tail -n 1); \
     fi && \
     echo "Building PostgreSQL ${PG_TAG}" && \
     git clone --branch "${PG_TAG}" --depth 1 \
