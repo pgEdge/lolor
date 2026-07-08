@@ -13,8 +13,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        # TODO: add 19 once a Spock release supports PostgreSQL 19
-        pgver: [16, 17, 18]
+        pgver: [16, 17, 18, 19]
+        include:
+          # Spock PG 19 support is merged but not yet released; build Spock
+          # from this branch for PG 19 and drop the override once a Spock
+          # release includes it
+          - pgver: 19
+            spock_ref: main
 
     runs-on: ${{ matrix.os }}
 
@@ -40,14 +45,22 @@ jobs:
     - name: Resolve PostgreSQL and Spock release tags
       id: tags
       run: |
-        PG_TAG=$(git ls-remote --tags https://github.com/postgres/postgres.git "REL_${{ matrix.pgver }}_*" \
-          | awk -F/ '{print $NF}' \
-          | grep -E "^REL_${{ matrix.pgver }}_[0-9]+$" \
-          | sort -t_ -k3,3n | tail -n 1)
-        SPOCK_TAG=$(git ls-remote --tags https://github.com/pgEdge/spock.git \
-          | awk -F/ '{print $NF}' \
-          | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-          | sort -V | tail -n 1)
+        PG_TAGS=$(git ls-remote --tags https://github.com/postgres/postgres.git "REL_${{ matrix.pgver }}_*" \
+          | awk -F/ '{print $NF}' | grep -v '\^{}')
+        PG_TAG=$(echo "$PG_TAGS" | grep -E "^REL_${{ matrix.pgver }}_[0-9]+$" | sort -t_ -k3,3n | tail -n 1)
+        # A pre-GA major has no stable minor tag yet: latest RC, else BETA
+        [ -n "$PG_TAG" ] || PG_TAG=$(echo "$PG_TAGS" | grep -E "^REL_${{ matrix.pgver }}_RC[0-9]+$" | sort -V | tail -n 1)
+        [ -n "$PG_TAG" ] || PG_TAG=$(echo "$PG_TAGS" | grep -E "^REL_${{ matrix.pgver }}_BETA[0-9]+$" | sort -V | tail -n 1)
+        if [ -n "${{ matrix.spock_ref }}" ]; then
+          # Pin the moving branch to its current SHA so the docker layer
+          # cache is invalidated by every Spock merge
+          SPOCK_TAG=$(git ls-remote https://github.com/pgEdge/spock.git "refs/heads/${{ matrix.spock_ref }}" | cut -f1)
+        else
+          SPOCK_TAG=$(git ls-remote --tags https://github.com/pgEdge/spock.git \
+            | awk -F/ '{print $NF}' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V | tail -n 1)
+        fi
         if [ -z "$PG_TAG" ] || [ -z "$SPOCK_TAG" ]; then
           echo "::error::Failed to resolve tags (PG_TAG='$PG_TAG', SPOCK_TAG='$SPOCK_TAG')"
           exit 1
