@@ -6,14 +6,15 @@ on:
     branches:
       - main
   pull_request:
-    
+
 jobs:
   run-scripts:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        pgver: [16, 17]
+        # TODO: add 19 once a Spock release supports PostgreSQL 19
+        pgver: [16, 17, 18]
 
     runs-on: ${{ matrix.os }}
 
@@ -33,12 +34,56 @@ jobs:
     - name: Set up docker-compose
       uses: docker/setup-compose-action@2fe291b7677a45ee1269ec56a42604c143505e7e # v1
 
-    - name: Build and run docker images
+    # Resolve the exact source tags on the runner and pass them in as build
+    # args: the docker layer cache then reuses the compiled PostgreSQL and
+    # Spock until a new release is tagged.
+    - name: Resolve PostgreSQL and Spock release tags
+      id: tags
+      run: |
+        PG_TAG=$(git ls-remote --tags https://github.com/postgres/postgres.git "REL_${{ matrix.pgver }}_*" \
+          | awk -F/ '{print $NF}' \
+          | grep -E "^REL_${{ matrix.pgver }}_[0-9]+$" \
+          | sort -t_ -k3,3n | tail -n 1)
+        SPOCK_TAG=$(git ls-remote --tags https://github.com/pgEdge/spock.git \
+          | awk -F/ '{print $NF}' \
+          | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+          | sort -V | tail -n 1)
+        if [ -z "$PG_TAG" ] || [ -z "$SPOCK_TAG" ]; then
+          echo "::error::Failed to resolve tags (PG_TAG='$PG_TAG', SPOCK_TAG='$SPOCK_TAG')"
+          exit 1
+        fi
+        echo "Using PostgreSQL $PG_TAG and Spock $SPOCK_TAG"
+        echo "pg_tag=$PG_TAG" >> $GITHUB_OUTPUT
+        echo "spock_tag=$SPOCK_TAG" >> $GITHUB_OUTPUT
+
+    - name: Build node image
+      uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
+      with:
+        context: docker
+        file: docker/Dockerfile.el9
+        tags: lolor
+        load: true
+        build-args: |
+          PGVER=${{ matrix.pgver }}
+          PG_TAG=${{ steps.tags.outputs.pg_tag }}
+          SPOCK_TAG=${{ steps.tags.outputs.spock_tag }}
+        cache-from: type=gha,scope=pg${{ matrix.pgver }}
+        cache-to: type=gha,mode=max,scope=pg${{ matrix.pgver }}
+
+    - name: Build tester image
+      uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
+      with:
+        context: docker
+        file: docker/Dockerfile.tester
+        tags: lolor-tester
+        load: true
+        cache-from: type=gha,scope=tester
+        cache-to: type=gha,scope=tester
+
+    - name: Run docker images
       run: |
         cd docker
         echo PG_VER=${{ matrix.pgver }} >> pgedge.env
-        docker build --build-arg PGVER=${{ matrix.pgver }} -t lolor -f Dockerfile.el9 .
-        docker build -t lolor-tester -f Dockerfile.tester .
         docker compose up -d
       env:
         PG_VER: ${{ matrix.pgver }}
