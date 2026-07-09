@@ -3,22 +3,51 @@ set -e
 
 cd /home/pgedge/pgedge
 . pg${PG_VER}/pg${PG_VER}.env
-echo 'export LD_LIBRARY_PATH=/home/pgedge/pgedge/pg${PG_VER}/lib:$LD_LIBRARY_PATH' >> /home/pgedge/.bashrc
-echo 'export LD_LIBRARY_PATH=/usr/lib64:$LD_LIBRARY_PATH' >> /home/pgedge/.bashrc
-echo 'export PATH=/home/pgedge/pgedge/pg${PG_VER}/bin:$PATH' >> /home/pgedge/.bashrc
-. /home/pgedge/.bashrc
-sudo ldconfig
+echo ". /home/pgedge/pgedge/pg${PG_VER}/pg${PG_VER}.env" >> /home/pgedge/.bashrc
 
-./pgedge start
+# Initialize the cluster.  This replaces `pgedge setup` from the
+# deprecated pgedge CLI.
+initdb -D "$PGDATA" -U admin --encoding=UTF8 --locale=C
+
+cat >> "$PGDATA/postgresql.conf" <<_EOF_
+listen_addresses = '*'
+wal_level = logical
+track_commit_timestamp = on
+max_worker_processes = 32
+max_replication_slots = 32
+max_wal_senders = 32
+shared_preload_libraries = 'spock'
+spock.conflict_resolution = 'last_update_wins'
+spock.save_resolutions = on
+_EOF_
+
+cat >> "$PGDATA/pg_hba.conf" <<_EOF_
+# Trust connections from the peer nodes and the tester
+host all all 0.0.0.0/0 trust
+_EOF_
+
+pg_ctl -D "$PGDATA" -l /home/pgedge/logfile.log -o "-k /tmp" -w start
 
 while ! pg_isready -h /tmp; do
   echo "Waiting for PostgreSQL to become ready..."
   sleep 1
 done
 
+# The admin user is what the tests connect as; the pgedge user is used for
+# the spock node and subscription DSNs (and matches the OS user, so plain
+# psql on the nodes works).
+psql -U admin -d postgres -h /tmp -v ON_ERROR_STOP=1 <<_EOF_
+ALTER USER admin PASSWORD 'password';
+CREATE ROLE pgedge SUPERUSER LOGIN;
+CREATE DATABASE demo OWNER admin;
+_EOF_
+
 echo "==========Creating tables and repsets=========="
-./pgedge spock node-create $HOSTNAME "host=$HOSTNAME user=pgedge dbname=demo" demo
-./pgedge spock repset-create demo_replication_set demo
+psql -U admin -d demo -h /tmp -v ON_ERROR_STOP=1 <<_EOF_
+CREATE EXTENSION spock;
+SELECT spock.node_create('$HOSTNAME', 'host=$HOSTNAME user=pgedge dbname=demo');
+SELECT spock.repset_create('demo_replication_set');
+_EOF_
 
 IFS=',' read -r -a peer_names <<< "$PEER_NAMES"
 
@@ -38,10 +67,35 @@ do
     done
 done
 
-./pgedge spock sub-create sub_${peer_names[0]}$HOSTNAME   "host=${peer_names[0]} port=5432 user=pgedge dbname=demo" demo
-./pgedge spock sub-create sub_${peer_names[1]}$HOSTNAME   "host=${peer_names[1]} port=5432 user=pgedge dbname=demo" demo
-./pgedge spock sub-add-repset sub_${peer_names[0]}$HOSTNAME demo_replication_set demo
-./pgedge spock sub-add-repset sub_${peer_names[1]}$HOSTNAME demo_replication_set demo
+# spock.sub_create connects to the provider synchronously, and the peer
+# restarts into its final foreground postgres at the end of its own setup,
+# so a connection can land in the peer's stop/start window.  Retry until
+# the peer is actually up.
+create_sub() {
+  local sub_name=$1
+  local provider_dsn=$2
+
+  for attempt in $(seq 1 60); do
+    # A previous attempt may have already created the subscription
+    if [ "$(psql -U admin -d demo -h /tmp -t -A -c "SELECT count(*) FROM spock.subscription WHERE sub_name = '$sub_name';")" = "1" ]; then
+      return 0
+    fi
+    psql -U admin -d demo -h /tmp -v ON_ERROR_STOP=1 \
+      -c "SELECT spock.sub_create('$sub_name', '$provider_dsn');" && return 0
+    echo "Retrying sub_create $sub_name..."
+    sleep 2
+  done
+  echo "Failed to create subscription $sub_name"
+  return 1
+}
+
+create_sub sub_${peer_names[0]}$HOSTNAME "host=${peer_names[0]} port=5432 user=pgedge dbname=demo"
+create_sub sub_${peer_names[1]}$HOSTNAME "host=${peer_names[1]} port=5432 user=pgedge dbname=demo"
+
+psql -U admin -d demo -h /tmp -v ON_ERROR_STOP=1 <<_EOF_
+SELECT spock.sub_add_repset('sub_${peer_names[0]}$HOSTNAME', 'demo_replication_set');
+SELECT spock.sub_add_repset('sub_${peer_names[1]}$HOSTNAME', 'demo_replication_set');
+_EOF_
 
 # Build out of the bind-mounted source tree.  The mount may not be writable
 # by this user (host ownership / SELinux labeling), so copy to a writable
@@ -55,16 +109,16 @@ cd /tmp/lolor-build
 make USE_PGXS=1 with_llvm=no
 make USE_PGXS=1 with_llvm=no install
 
-psql -U admin -d demo -h /tmp <<_EOF_
-drop extension lolor;
-create extension lolor; 
+psql -U admin -d demo -h /tmp -v ON_ERROR_STOP=1 <<_EOF_
+create extension lolor;
 alter system set lolor.node to ${HOSTNAME: -1};
 _EOF_
 
-cd /home/pgedge/pgedge
-./pgedge spock repset-add-table demo_replication_set 'lolor.pg_largeobject' demo
-./pgedge spock repset-add-table demo_replication_set 'lolor.pg_largeobject_metadata' demo
+psql -U admin -d demo -h /tmp -v ON_ERROR_STOP=1 <<_EOF_
+SELECT spock.repset_add_table('demo_replication_set', 'lolor.pg_largeobject');
+SELECT spock.repset_add_table('demo_replication_set', 'lolor.pg_largeobject_metadata');
+_EOF_
 
-./pgedge stop
+pg_ctl -D "$PGDATA" -m fast -w stop
 
-/home/pgedge/pgedge/pg${PG_VER}/bin/postgres -D /home/pgedge/pgedge/data/pg${PG_VER} 2>&1
+exec /home/pgedge/pgedge/pg${PG_VER}/bin/postgres -D "$PGDATA" 2>&1
