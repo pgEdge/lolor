@@ -16,4 +16,4 @@ COPY run-tests.sh /home/pgedge
 RUN sudo chmod +x /home/pgedge/run-tests.sh
 
 WORKDIR /home/pgedge/lolor/tests
-CMD /home/pgedge/run-tests.sh
+CMD ["/home/pgedge/run-tests.sh"]
