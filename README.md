@@ -61,12 +61,11 @@ set search_path=lolor,"$user",public,pg_catalog
 Any existing methods in `pg_catalog.lo_*` are renamed to `pg_catalog.lo_*_orig`, and new versions of these methods are introduced.
 If you remove the extension, the renamed `pg_catalog.lo_*_orig` functions are restored to their initial names.
 
-While using `pgedge` replication with large objects, you must have the tables `pg_largeobject` and `pg_largeobject_metadata` in your replication set; use 
-the following commands to add the tables:
+When you replicate large objects with Spock, the tables `pg_largeobject` and `pg_largeobject_metadata` must belong to your replication set. Connect to the lolor database and add them with `spock.repset_add_table`:
 
-```
-./pgedge spock repset-add-table spock_replication_set 'lolor.pg_largeobject' lolor_db
-./pgedge spock repset-add-table spock_replication_set 'lolor.pg_largeobject_metadata' lolor_db
+```sql
+SELECT spock.repset_add_table('spock_replication_set', 'lolor.pg_largeobject');
+SELECT spock.repset_add_table('spock_replication_set', 'lolor.pg_largeobject_metadata');
 ```
 
 ### Migrating large objects

@@ -2,11 +2,9 @@
 
 lolor is supported on Postgres versions 16 and later.
 
-You can use the CLI's Update Manager (`um`) module to install the lolor extension.  After installing pgEdge Distributed Postgres, navigate into the `pgedge` directory and add lolor to your installation with the command:
+lolor ships with pgEdge Distributed Postgres and pgEdge Enterprise Postgres, so a pgEdge deployment provides the extension for you. The Control Plane installs the lolor package on each node as part of standard cluster setup.
 
-`./pgedge um install lolor`
-
-You can also compile and install the extension from the [source code](https://github.com/pgEdge/lolor), with the same guidelines as any other Postgres extension constructed using PGXS.  Make sure that your PATH environment variable includes the directory where `pg_config` (under your PostgreSQL installation) is located.
+If you manage Postgres yourself, you can compile and install the extension from the [source code](https://github.com/pgEdge/lolor), following the same guidelines as any other Postgres extension built with PGXS.  Make sure that your PATH environment variable includes the directory where `pg_config` (under your PostgreSQL installation) is located.
 
 ```
 export PATH=/opt/pg16/bin:$PATH
@@ -16,7 +14,7 @@ make USE_PGXS=1
 make USE_PGXS=1 install
 ```
 
-After installing the lolor extension with either the `um` module or from source code, connect to your Postgres database and create the extension with the command:
+After the lolor extension is installed, connect to your Postgres database and create the extension with the command:
 
 ```
 CREATE EXTENSION lolor;
@@ -38,10 +36,9 @@ SET search_path=lolor,"$user",public,pg_catalog
 
 lolor renames any existing methods in `pg_catalog.lo_*` to `pg_catalog.lo_*_orig`, and new versions of these methods are introduced.  If you remove the extension, the renamed `pg_catalog.lo_*_orig` functions are restored to their initial names.
 
-While using `pgedge` replication with large objects, you must have the `pg_largeobject` and `pg_largeobject_metadata` tables in your replication set; use 
-the following commands to add the tables:
+When you replicate large objects with Spock, the `pg_largeobject` and `pg_largeobject_metadata` tables must belong to your replication set. Connect to the lolor database and add them with `spock.repset_add_table`:
 
-```
-./pgedge spock repset-add-table spock_replication_set 'lolor.pg_largeobject' lolor_db
-./pgedge spock repset-add-table spock_replication_set 'lolor.pg_largeobject_metadata' lolor_db
+```sql
+SELECT spock.repset_add_table('spock_replication_set', 'lolor.pg_largeobject');
+SELECT spock.repset_add_table('spock_replication_set', 'lolor.pg_largeobject_metadata');
 ```
