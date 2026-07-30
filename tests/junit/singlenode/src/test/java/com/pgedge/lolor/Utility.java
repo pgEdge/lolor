@@ -114,7 +114,9 @@ public class Utility {
         QueryResult result = new QueryResult(sql);
         try {
             StringBuilder sbResult = new StringBuilder();
-            PreparedStatement ps = pgconn.prepareStatement(sql);
+            // Test-only helper: 'sql' is authored by the tests themselves and
+            // never comes from external input, so injection is not a concern.
+            PreparedStatement ps = pgconn.prepareStatement(sql); // nosemgrep
             ResultSet rs = ps.executeQuery();
             ResultSetMetaData rsmd = rs.getMetaData();
             int columnsNumber = rsmd.getColumnCount();

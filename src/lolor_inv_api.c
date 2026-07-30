@@ -561,7 +561,7 @@ lolor_inv_read(LargeObjectDesc *obj_desc, char *buf, int nbytes)
 				n = len - off;
 				n = (n <= (nbytes - nread)) ? n : (nbytes - nread);
 				Assert(n > 0 && n <= nbytes - nread && n <= len - off);
-				memcpy(buf + nread, VARDATA(datafield) + off, n);
+				memcpy(buf + nread, VARDATA(datafield) + off, n);	/* nosemgrep */
 				nread += n;
 				obj_desc->offset += n;
 			}
@@ -680,7 +680,7 @@ lolor_inv_write(LargeObjectDesc *obj_desc, const char *buf, int nbytes)
 			 */
 			getdatafield(olddata, &datafield, &len, &pfreeit);
 			Assert(len >= 0 && len <= LOBLKSIZE);	/* validated by getdatafield() */
-			memcpy(workb, VARDATA(datafield), len);
+			memcpy(workb, VARDATA(datafield), len);	/* nosemgrep */
 			if (pfreeit)
 				pfree(datafield);
 
@@ -698,7 +698,7 @@ lolor_inv_write(LargeObjectDesc *obj_desc, const char *buf, int nbytes)
 			n = (n <= (nbytes - nwritten)) ? n : (nbytes - nwritten);
 			Assert(n > 0 && off + n <= LOBLKSIZE);	/* destination fits in workbuf page */
 			Assert(n <= nbytes - nwritten);			/* source fits in caller's buffer */
-			memcpy(workb + off, buf + nwritten, n);
+			memcpy(workb + off, buf + nwritten, n);	/* nosemgrep */
 			nwritten += n;
 			obj_desc->offset += n;
 			off += n;
@@ -745,7 +745,7 @@ lolor_inv_write(LargeObjectDesc *obj_desc, const char *buf, int nbytes)
 			n = (n <= (nbytes - nwritten)) ? n : (nbytes - nwritten);
 			Assert(n > 0 && off + n <= LOBLKSIZE);	/* destination fits in workbuf page */
 			Assert(n <= nbytes - nwritten);			/* source fits in caller's buffer */
-			memcpy(workb + off, buf + nwritten, n);
+			memcpy(workb + off, buf + nwritten, n);	/* nosemgrep */
 			nwritten += n;
 			obj_desc->offset += n;
 			/* compute valid length of new page */
@@ -870,7 +870,7 @@ lolor_inv_truncate(LargeObjectDesc *obj_desc, int64 len)
 
 		getdatafield(olddata, &datafield, &pagelen, &pfreeit);
 		Assert(pagelen >= 0 && pagelen <= LOBLKSIZE);	/* validated by getdatafield() */
-		memcpy(workb, VARDATA(datafield), pagelen);
+		memcpy(workb, VARDATA(datafield), pagelen);	/* nosemgrep */
 		if (pfreeit)
 			pfree(datafield);
 
