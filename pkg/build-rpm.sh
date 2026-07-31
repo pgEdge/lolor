@@ -6,7 +6,7 @@ RHEL="$(rpm --eval %rhel)"
 prepare() {
   setup_dnf_build_env
   echo "Copying packaging files..."
-  cp ${COMPONENT_NAME}/rpm/lolor.spec ~/rpmbuild/SPECS/
+  cp "${COMPONENT_DIR}/rpm/lolor.spec" ~/rpmbuild/SPECS/
 
   # The spec's Source0 basename is v<version>.tar.gz (a GitHub tag archive),
   # while %setup expects the lolor-<version>/ directory inside it — which is
