@@ -51,8 +51,11 @@ on:
                 default: '16,17,18'
             force_push:
                 description: |
-                    Publish RPMs/DEBs even if some matrix cells failed. Only
-                    honored on real tag pushes. Default false.
+                    Publish RPMs/DEBs even if some matrix cells failed. Reachable
+                    only by dispatching this workflow against a TAG ref
+                    (`gh workflow run release.yml --ref <tag> -f force_push=true`):
+                    on a plain tag push github.event.inputs is null, so the push
+                    gates see it as false. Default false.
                 required: false
                 default: 'false'
             skip_rpm:
