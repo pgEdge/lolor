@@ -110,4 +110,8 @@ extern void lolor_utility_fini(void);
 extern void lolor_record_role_dependency(Oid roleid);
 extern Datum lolor_cleanup_dependencies(PG_FUNCTION_ARGS);
 
+/* oldloutils.c */
+extern Datum lolor_migrate(PG_FUNCTION_ARGS);
+
 #endif							/* LOLOR_LARGEOBJECT_H */
+

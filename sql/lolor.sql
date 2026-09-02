@@ -456,3 +456,85 @@ SELECT lo_unlink(4001);
 SELECT lo_unlink(4002);
 DROP EXTENSION lolor;
 
+--
+-- lolor.migrate(): incremental batch migration
+--
+CREATE EXTENSION lolor;
+
+-- Ensure any leftover native large objects are migrated first
+SELECT lolor.migrate() >= 0 AS clean_start;
+
+-- 1. Create 5 native large objects
+SELECT lolor.disable();
+SELECT lo_from_bytea(5001, 'Batch migration 1');
+SELECT lo_from_bytea(5002, 'Batch migration 2');
+SELECT lo_from_bytea(5003, 'Batch migration 3');
+SELECT lo_from_bytea(5004, 'Batch migration 4');
+SELECT lo_from_bytea(5005, 'Batch migration 5');
+SELECT lolor.enable();
+
+-- Check initial distribution
+SELECT count(*) AS native_cnt FROM pg_catalog.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
+SELECT count(*) AS lolor_cnt FROM lolor.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
+
+-- Migrate batch of 2
+SELECT lolor.migrate(2);
+SELECT count(*) AS native_cnt FROM pg_catalog.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
+SELECT count(*) AS lolor_cnt FROM lolor.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
+
+-- Migrate all remaining
+SELECT lolor.migrate();
+SELECT count(*) AS native_cnt FROM pg_catalog.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
+SELECT count(*) AS lolor_cnt FROM lolor.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
+
+-- Calling again returns 0
+SELECT lolor.migrate();
+
+-- 2. strict_from_end_to_start: reverse physical scan
+SELECT lolor.disable();
+SELECT lo_from_bytea(5011, 'End to start 1');
+SELECT lo_from_bytea(5012, 'End to start 2');
+SELECT lo_from_bytea(5013, 'End to start 3');
+SELECT lolor.enable();
+
+-- Reverse scan should pick 5013 first (written last at physical end)
+SELECT lolor.migrate(1, strict_from_end_to_start => true);
+SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 5013;
+SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 5013;
+
+-- Migrate remaining objects with reverse scan
+SELECT lolor.migrate(strict_from_end_to_start => true);
+SELECT count(*) AS native_cnt FROM pg_catalog.pg_largeobject_metadata WHERE oid BETWEEN 5011 AND 5013;
+SELECT count(*) AS lolor_cnt FROM lolor.pg_largeobject_metadata WHERE oid BETWEEN 5011 AND 5013;
+
+-- 3. run_vacuum and procedure call
+SELECT lolor.disable();
+SELECT lo_from_bytea(5021, 'Vacuum test 1');
+SELECT lo_from_bytea(5022, 'Vacuum test 2');
+SELECT lolor.enable();
+
+-- Function with run_vacuum => true
+SELECT lolor.migrate(1, run_vacuum => true);
+SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 5021;
+
+SELECT lolor.migrate(1, run_vacuum => true);
+SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 5022;
+
+-- 4. Alias test: lolor.lolor_migrate
+SELECT lolor.lolor_migrate(0);
+
+
+-- Cleanup
+SELECT lo_unlink(5001);
+SELECT lo_unlink(5002);
+SELECT lo_unlink(5003);
+SELECT lo_unlink(5004);
+SELECT lo_unlink(5005);
+SELECT lo_unlink(5011);
+SELECT lo_unlink(5012);
+SELECT lo_unlink(5013);
+SELECT lo_unlink(5021);
+SELECT lo_unlink(5022);
+DROP EXTENSION lolor;
+
+

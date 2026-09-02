@@ -373,3 +373,36 @@ RETURNS integer
 AS 'MODULE_PATHNAME', 'lolor_cleanup_dependencies'
 LANGUAGE C STRICT VOLATILE;
 
+/*
+ * lolor.migrate()
+ *
+ * Incrementally migrate native large objects into lolor storage.
+ *
+ * Parameters:
+ *   n                        - max number of large objects to migrate (NULL = all)
+ *   skip_locked              - if true, skip objects locked by other sessions
+ *   strict_from_end_to_start - if true, select objects by reverse physical block scan
+ *   run_vacuum               - if true, vacuum relations after migration
+ */
+CREATE FUNCTION lolor.migrate(
+    n integer DEFAULT NULL,
+    skip_locked boolean DEFAULT true,
+    strict_from_end_to_start boolean DEFAULT false,
+    run_vacuum boolean DEFAULT false
+)
+RETURNS bigint
+AS 'MODULE_PATHNAME', 'lolor_migrate'
+LANGUAGE C VOLATILE;
+
+CREATE FUNCTION lolor.lolor_migrate(
+    n integer DEFAULT NULL,
+    skip_locked boolean DEFAULT true,
+    strict_from_end_to_start boolean DEFAULT false,
+    run_vacuum boolean DEFAULT false
+)
+RETURNS bigint
+AS 'MODULE_PATHNAME', 'lolor_migrate'
+LANGUAGE C VOLATILE;
+
+
+
