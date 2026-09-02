@@ -497,7 +497,16 @@ oldlo_migrate_one(Oid lobjId)
 	else
 	{
 		struct varlena *acl_copy = PG_DETOAST_DATUM_COPY(aclDatum);
+		Acl		   *acl = (Acl *) acl_copy;
+		int			nmembers;
+		Oid		   *members;
+
 		mvalues[Anum_pg_largeobject_metadata_lomacl - 1] = PointerGetDatum(acl_copy);
+		nmembers = aclmembers(acl, &members);
+		for (int i = 0; i < nmembers; i++)
+			lolor_record_role_dependency(members[i]);
+		if (members)
+			pfree(members);
 	}
 
 	new_meta_tup = heap_form_tuple(RelationGetDescr(lolor_meta), mvalues, mnulls);
@@ -560,10 +569,9 @@ oldlo_migrate_one(Oid lobjId)
 	table_close(native_data, RowExclusiveLock);
 
 	/*
-	 * 4. Record owner dependency on lolor relation.
+	 * 4. Record owner dependency on lolor.pg_largeobject_metadata.
 	 */
-	recordDependencyOnOwner(get_LOLOR_LargeObjectRelationId(),
-							lobjId, ownerId);
+	lolor_record_role_dependency(ownerId);
 
 	/*
 	 * 5. Save comment if any, then drop native object via inv_drop().

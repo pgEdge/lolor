@@ -94,7 +94,6 @@ PG_FUNCTION_INFO_V1(lolor_lo_put);
 
 static int	lo_read(int fd, char *buf, int len);
 static int	lo_write(int fd, const char *buf, int len);
-static bool lolor_object_ownercheck(Oid classid, Oid objectid, Oid roleid);
 static AclMode lolor_largeobject_aclmask_snapshot(Oid lobj_oid, Oid roleid,
 					AclMode mask, AclMaskHow how, Snapshot snapshot);
 
@@ -950,7 +949,7 @@ lolor_lo_put(PG_FUNCTION_ARGS)
 	PG_RETURN_VOID();
 }
 
-static bool
+bool
 lolor_object_ownercheck(Oid classid, Oid objectid, Oid roleid)
 {
 	Oid			ownerId;
