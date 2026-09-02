@@ -47,6 +47,22 @@ extern int	lolor_inv_read(LargeObjectDesc *obj_desc, char *buf, int nbytes);
 extern int	lolor_inv_write(LargeObjectDesc *obj_desc, const char *buf, int nbytes);
 extern void lolor_inv_truncate(LargeObjectDesc *obj_desc, int64 len);
 
+/* flag for LargeObjectDesc: object is stored in native pg_catalog */
+#define IFS_NATIVE		(1 << 2)
+
+/* oldloutils.c */
+extern void oldlo_open_lo_relation(void);
+extern void oldlo_close_lo_relation(bool isCommit);
+extern bool oldlo_exists(Oid loid, Snapshot snapshot);
+extern AclResult oldlo_aclcheck(Oid loid, Oid roleid, AclMode mode, Snapshot snapshot);
+extern bool oldlo_ownercheck(Oid loid, Oid roleid);
+extern int	oldlo_read(LargeObjectDesc *obj_desc, char *buf, int nbytes);
+extern int64 oldlo_seek(LargeObjectDesc *obj_desc, int64 offset, int whence);
+extern int64 oldlo_tell(LargeObjectDesc *obj_desc);
+extern uint64 oldlo_getsize(LargeObjectDesc *obj_desc);
+extern int	oldlo_drop(Oid lobjId);
+extern bool oldlo_migrate_one(Oid lobjId);
+
 /* lolor_fsstubs.c */
 
 #ifndef repalloc0_array

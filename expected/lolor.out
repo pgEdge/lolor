@@ -115,6 +115,12 @@ SELECT lo_close(:fd);
 (1 row)
 
 END;
+SELECT lo_unlink(:loid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
 --
 -- lo_tell: verify cursor position before and after a write.
 -- Expected: position 0 before write, position 11 after writing 11 bytes;
@@ -175,6 +181,12 @@ SELECT lo_close(:fd);
 (1 row)
 
 END;
+SELECT lo_unlink(:loid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
 --
 -- lo_truncate: truncate to 10 bytes, verify only the prefix survives.
 -- Expected: only "0123456789" readable after truncation.
@@ -216,6 +228,12 @@ SELECT lo_close(:fd);
 (1 row)
 
 END;
+SELECT lo_unlink(:loid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
 DROP EXTENSION lolor;
 NOTICE:  migrated 1 large object(s) from lolor to native storage
 -- Check extension upgrade
@@ -309,14 +327,33 @@ SELECT lolor.enable();
  t
 (1 row)
 
-SELECT lo_open(2, 262144); -- 'not found' ERROR
-ERROR:  large object 2 does not exist
+BEGIN;
+SELECT lo_open(2, 262144) AS fd \gset
+SELECT convert_from(loread(:fd, 1024), 'UTF8'); -- OK, see the native object
+                    convert_from                    
+----------------------------------------------------
+ Example large object stored in built-in LO storage
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
+(1 row)
+
+END;
 BEGIN;
 SELECT lo_open(1, 262144) AS fd \gset
 SELECT convert_from(loread(:fd, 1024), 'UTF8'); -- OK, see the object
                   convert_from                   
 -------------------------------------------------
  Example large object stored in lolor LO storage
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
 (1 row)
 
 END;
@@ -638,10 +675,11 @@ SELECT lolor.disable();
  t
 (1 row)
 
-SELECT lo_create(:'drop_conflict_oid');
- lo_create 
------------
-    268385
+SELECT lo_create(:'drop_conflict_oid') AS created_drop_oid \gset
+SELECT :'created_drop_oid' = :'drop_conflict_oid' AS oid_matches;
+ oid_matches 
+-------------
+ t
 (1 row)
 
 SELECT lolor.enable();
@@ -689,3 +727,223 @@ SELECT lolor.enable();
 -- Now DROP should succeed
 DROP EXTENSION lolor;
 NOTICE:  migrated 1 large object(s) from lolor to native storage
+--
+-- Zero-downtime migration: transparent reading and on-the-fly migration
+--
+CREATE EXTENSION lolor;
+-- 1. Create a native large object while lolor is disabled
+SELECT lolor.disable();
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_from_bytea(3001, 'Native LO data for zero-downtime reading test');
+ lo_from_bytea 
+---------------
+          3001
+(1 row)
+
+SELECT lolor.enable();
+ enable 
+--------
+ t
+(1 row)
+
+-- 2. Verify reading via lo_get and lo_get_fragment works transparently with lolor enabled
+SELECT convert_from(lo_get(3001), 'UTF8');
+                 convert_from                  
+-----------------------------------------------
+ Native LO data for zero-downtime reading test
+(1 row)
+
+SELECT convert_from(lo_get(3001, 7, 7), 'UTF8');
+ convert_from 
+--------------
+ LO data
+(1 row)
+
+-- 3. Verify reading via lo_open, lo_lseek, lo_tell, loread, lo_close
+BEGIN;
+SELECT lo_open(3001, 262144) AS fd \gset
+SELECT lo_tell(:fd);
+ lo_tell 
+---------
+       0
+(1 row)
+
+SELECT lo_lseek(:fd, 7, 0);
+ lo_lseek 
+----------
+        7
+(1 row)
+
+SELECT lo_tell(:fd);
+ lo_tell 
+---------
+       7
+(1 row)
+
+SELECT convert_from(loread(:fd, 7), 'UTF8');
+ convert_from 
+--------------
+ LO data
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
+(1 row)
+
+END;
+-- 4. Verify object is still in native storage (reads do not migrate)
+SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 3001;
+ count 
+-------
+     1
+(1 row)
+
+SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 3001;
+ count 
+-------
+     0
+(1 row)
+
+-- 5. On-the-fly migration on write (lo_put)
+SELECT lo_put(3001, 0, 'MODIFIED');
+ lo_put 
+--------
+ 
+(1 row)
+
+-- Now object 3001 must be in lolor storage and gone from native storage!
+SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 3001;
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 3001;
+ count 
+-------
+     1
+(1 row)
+
+SELECT convert_from(lo_get(3001), 'UTF8');
+                 convert_from                  
+-----------------------------------------------
+ MODIFIEDO data for zero-downtime reading test
+(1 row)
+
+-- 6. On-the-fly migration on write via lo_open(INV_WRITE) + lowrite
+SELECT lolor.disable();
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_from_bytea(3002, 'Native LO for write migration test');
+ lo_from_bytea 
+---------------
+          3002
+(1 row)
+
+SELECT lolor.enable();
+ enable 
+--------
+ t
+(1 row)
+
+BEGIN;
+SELECT lo_open(3002, x'60000'::int) AS fd \gset
+SELECT lowrite(:fd, 'MIGRATED');
+ lowrite 
+---------
+       8
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
+(1 row)
+
+END;
+-- Must be in lolor storage and gone from native storage
+SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 3002;
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 3002;
+ count 
+-------
+     1
+(1 row)
+
+SELECT convert_from(lo_get(3002), 'UTF8');
+            convert_from            
+------------------------------------
+ MIGRATEDO for write migration test
+(1 row)
+
+-- 7. Transparent lo_unlink of native object
+SELECT lolor.disable();
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_from_bytea(3003, 'Native LO to be unlinked');
+ lo_from_bytea 
+---------------
+          3003
+(1 row)
+
+SELECT lolor.enable();
+ enable 
+--------
+ t
+(1 row)
+
+SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 3003;
+ count 
+-------
+     1
+(1 row)
+
+SELECT lo_unlink(3003);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 3003;
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 3003;
+ count 
+-------
+     0
+(1 row)
+
+-- Cleanup migrated objects
+SELECT lo_unlink(3001);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lo_unlink(3002);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+DROP EXTENSION lolor;
+NOTICE:  no lolor large objects to migrate
