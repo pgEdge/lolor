@@ -355,3 +355,104 @@ SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 3003;
 SELECT lo_unlink(3001);
 SELECT lo_unlink(3002);
 DROP EXTENSION lolor;
+
+--
+-- ProcessUtility hook: ALTER, COMMENT, GRANT, REVOKE on LARGE OBJECT
+--
+CREATE EXTENSION lolor;
+
+-- Create test roles
+CREATE ROLE lolor_test_user1;
+CREATE ROLE lolor_test_user2;
+
+-- Create large objects (one in lolor, one native)
+SELECT lo_from_bytea(4001, 'Lolor LO for utility tests');
+
+SELECT lolor.disable();
+SELECT lo_from_bytea(4002, 'Native LO for utility tests');
+SELECT lolor.enable();
+
+-- 1. COMMENT ON LARGE OBJECT
+-- Set comment on lolor object
+COMMENT ON LARGE OBJECT 4001 IS 'Test comment on lolor LO';
+SELECT description FROM pg_description WHERE objoid = 4001 AND classoid = 'pg_largeobject'::regclass;
+
+-- Set comment on native object
+COMMENT ON LARGE OBJECT 4002 IS 'Test comment on native LO';
+SELECT description FROM pg_description WHERE objoid = 4002 AND classoid = 'pg_largeobject'::regclass;
+
+-- Remove comment by setting to NULL
+COMMENT ON LARGE OBJECT 4001 IS NULL;
+SELECT description FROM pg_description WHERE objoid = 4001 AND classoid = 'pg_largeobject'::regclass;
+
+-- Error on non-existent object
+COMMENT ON LARGE OBJECT 999999 IS 'Should fail';
+
+-- 2. ALTER LARGE OBJECT ... OWNER TO
+-- Alter owner of lolor object
+ALTER LARGE OBJECT 4001 OWNER TO lolor_test_user1;
+SELECT lomowner = (SELECT oid FROM pg_roles WHERE rolname = 'lolor_test_user1') AS is_user1_owner
+  FROM lolor.pg_largeobject_metadata WHERE oid = 4001;
+
+-- Alter owner of native object: should migrate on-the-fly to lolor storage
+ALTER LARGE OBJECT 4002 OWNER TO lolor_test_user1;
+SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 4002;
+SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 4002;
+SELECT lomowner = (SELECT oid FROM pg_roles WHERE rolname = 'lolor_test_user1') AS is_user1_owner
+  FROM lolor.pg_largeobject_metadata WHERE oid = 4002;
+-- Verify comment on 4002 is still preserved after migration
+SELECT description FROM pg_description WHERE objoid = 4002 AND classoid = 'pg_largeobject'::regclass;
+
+-- Error on non-existent object
+ALTER LARGE OBJECT 999999 OWNER TO lolor_test_user1;
+
+-- 3. GRANT and REVOKE on LARGE OBJECT
+-- Grant SELECT and UPDATE to lolor_test_user2
+GRANT SELECT, UPDATE ON LARGE OBJECT 4001 TO lolor_test_user2;
+SELECT lomacl IS NOT NULL AS has_acl FROM lolor.pg_largeobject_metadata WHERE oid = 4001;
+
+-- Revoke UPDATE from lolor_test_user2
+REVOKE UPDATE ON LARGE OBJECT 4001 FROM lolor_test_user2;
+SELECT lomacl IS NOT NULL AS has_acl FROM lolor.pg_largeobject_metadata WHERE oid = 4001;
+
+-- Grant ALL PRIVILEGES
+GRANT ALL PRIVILEGES ON LARGE OBJECT 4001 TO lolor_test_user2;
+SELECT lomacl IS NOT NULL AS has_acl FROM lolor.pg_largeobject_metadata WHERE oid = 4001;
+
+-- Revoke ALL PRIVILEGES
+REVOKE ALL PRIVILEGES ON LARGE OBJECT 4001 FROM lolor_test_user2;
+SELECT lomacl IS NOT NULL AS has_acl FROM lolor.pg_largeobject_metadata WHERE oid = 4001;
+
+-- Error on non-existent object
+GRANT SELECT ON LARGE OBJECT 999999 TO lolor_test_user2;
+REVOKE SELECT ON LARGE OBJECT 999999 FROM lolor_test_user2;
+
+-- 4. Dependency tracking and lolor.cleanup_dependencies()
+-- Grant privilege to lolor_test_user2 to record dependency
+GRANT SELECT ON LARGE OBJECT 4001 TO lolor_test_user2;
+
+-- Dropping user1 or user2 should fail because they have dependencies
+DROP ROLE lolor_test_user1;
+DROP ROLE lolor_test_user2;
+
+-- Now transfer ownership back to current user and revoke privileges from user2
+ALTER LARGE OBJECT 4001 OWNER TO CURRENT_USER;
+ALTER LARGE OBJECT 4002 OWNER TO CURRENT_USER;
+REVOKE SELECT ON LARGE OBJECT 4001 FROM lolor_test_user2;
+
+-- Attempting to drop role directly still fails before cleanup
+DROP ROLE lolor_test_user1;
+DROP ROLE lolor_test_user2;
+
+-- Run lolor.cleanup_dependencies()
+SELECT lolor.cleanup_dependencies() >= 2 AS cleaned_deps;
+
+-- Now dropping the roles should succeed!
+DROP ROLE lolor_test_user1;
+DROP ROLE lolor_test_user2;
+
+-- Cleanup
+SELECT lo_unlink(4001);
+SELECT lo_unlink(4002);
+DROP EXTENSION lolor;
+

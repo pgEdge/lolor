@@ -102,5 +102,12 @@ extern Datum lolor_lo_from_bytea(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_get(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_get_fragment(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_put(PG_FUNCTION_ARGS);
+extern bool lolor_object_ownercheck(Oid classid, Oid objectid, Oid roleid);
+
+/* lolor_utility.c */
+extern void lolor_utility_init(void);
+extern void lolor_utility_fini(void);
+extern void lolor_record_role_dependency(Oid roleid);
+extern Datum lolor_cleanup_dependencies(PG_FUNCTION_ARGS);
 
 #endif							/* LOLOR_LARGEOBJECT_H */

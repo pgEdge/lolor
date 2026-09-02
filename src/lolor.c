@@ -36,6 +36,7 @@ PG_MODULE_MAGIC;
 int32 lolor_node_id = 0;
 
 void	_PG_init(void);
+void	_PG_fini(void);
 
 /* keep Oids of the large object catalog. */
 static Oid	LOLOR_LargeObjectRelationId = InvalidOid;
@@ -170,6 +171,15 @@ _PG_init(void)
 	 * So, it is necessary to invalidate cache of Oids.
 	 */
 	CacheRegisterRelcacheCallback(relcache_invalidate_callback, (Datum) 0);
+
+	/* Initialize ProcessUtility hook */
+	lolor_utility_init();
+}
+
+void
+_PG_fini(void)
+{
+	lolor_utility_fini();
 }
 
 /*

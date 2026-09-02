@@ -218,15 +218,12 @@ lolor_inv_create(Oid lobjId)
 	lobjId_new = LOLOR_LargeObjectCreate(lobjId);
 
 	/*
-	 * dependency on the owner of largeobject
+	 * Dependency on the owner of largeobject.
 	 *
-	 * Note that LO dependencies are recorded using classId
-	 * LOLOR_LargeObjectRelationId for backwards-compatibility reasons.  Using
-	 * LOLOR_LargeObjectMetadataRelationId instead would simplify matters for the
-	 * backend, but it'd complicate pg_dump and possibly break other clients.
+	 * To avoid catalog bloat in pg_shdepend, we record at most one dependency
+	 * per role on lolor.pg_largeobject_metadata instead of one per large object.
 	 */
-	recordDependencyOnOwner(get_LOLOR_LargeObjectRelationId(),
-							lobjId_new, GetUserId());
+	lolor_record_role_dependency(GetUserId());
 
 	/* Post creation hook for new large object */
 	InvokeObjectPostCreateHook(get_LOLOR_LargeObjectRelationId(), lobjId_new, 0);

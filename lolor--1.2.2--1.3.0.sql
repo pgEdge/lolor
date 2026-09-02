@@ -361,3 +361,15 @@ BEGIN
   RETURN lo_count;
 END;
 $$ LANGUAGE plpgsql VOLATILE;
+
+/*
+ * lolor.cleanup_dependencies()
+ *
+ * Remove shared dependencies on lolor.pg_largeobject_metadata for roles
+ * that no longer own or have privileges on any lolor large objects.
+ */
+CREATE FUNCTION lolor.cleanup_dependencies()
+RETURNS integer
+AS 'MODULE_PATHNAME', 'lolor_cleanup_dependencies'
+LANGUAGE C STRICT VOLATILE;
+
