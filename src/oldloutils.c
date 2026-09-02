@@ -19,19 +19,26 @@
 
 #include "access/detoast.h"
 #include "access/genam.h"
+#include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/sysattr.h"
 #include "access/table.h"
+#include "access/tableam.h"
 #include "access/xact.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_largeobject.h"
 #include "catalog/pg_largeobject_metadata.h"
 #include "commands/comment.h"
+#include "commands/vacuum.h"
+#include "executor/tuptable.h"
 #include "libpq/libpq-fs.h"
 #include "miscadmin.h"
+#include "nodes/lockoptions.h"
+#include "storage/bufmgr.h"
 #include "utils/acl.h"
 #include "utils/fmgroids.h"
+#include "utils/hsearch.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #if PG_VERSION_NUM >= 160000
@@ -42,6 +49,7 @@
 
 static Relation oldlo_heap_r = NULL;
 static Relation oldlo_index_r = NULL;
+
 
 static void oldlo_getdatafield(Form_pg_largeobject tuple,
 							   bytea **pdatafield,
@@ -590,3 +598,279 @@ oldlo_migrate_one(Oid lobjId)
 
 	return true;
 }
+
+/*
+ * Helper: collect OIDs from physical end of pg_catalog.pg_largeobject
+ * backwards to the beginning.
+ */
+static List *
+lolor_collect_oids_reverse(int max_count)
+{
+	Relation	lo_rel;
+	BlockNumber nblocks;
+	BlockNumber blk;
+	List	   *oid_list = NIL;
+	HTAB	   *seen_oids;
+	HASHCTL		ctl;
+	Snapshot	snapshot;
+
+	lo_rel = table_open(LargeObjectRelationId, AccessShareLock);
+	nblocks = RelationGetNumberOfBlocks(lo_rel);
+	if (nblocks == 0)
+	{
+		table_close(lo_rel, AccessShareLock);
+		return NIL;
+	}
+
+	memset(&ctl, 0, sizeof(ctl));
+	ctl.keysize = sizeof(Oid);
+	ctl.entrysize = sizeof(Oid);
+	ctl.hcxt = CurrentMemoryContext;
+	seen_oids = hash_create("lolor_migrate_reverse_oids",
+							1024,
+							&ctl,
+							HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+
+	snapshot = GetActiveSnapshot();
+
+	/* Scan blocks backwards from the last block down to 0 */
+	for (blk = nblocks - 1; blk != InvalidBlockNumber; blk--)
+	{
+		Buffer		buf;
+		Page		page;
+		OffsetNumber maxoff;
+		OffsetNumber off;
+
+		buf = ReadBuffer(lo_rel, blk);
+		LockBuffer(buf, BUFFER_LOCK_SHARE);
+		page = BufferGetPage(buf);
+
+		if (!PageIsNew(page))
+		{
+			maxoff = PageGetMaxOffsetNumber(page);
+			for (off = maxoff; off >= FirstOffsetNumber; off = OffsetNumberPrev(off))
+			{
+				ItemId		itemid = PageGetItemId(page, off);
+
+				if (ItemIdIsNormal(itemid))
+				{
+					HeapTupleHeader tuphdr = (HeapTupleHeader) PageGetItem(page, itemid);
+					HeapTupleData tup;
+
+					tup.t_len = ItemIdGetLength(itemid);
+					ItemPointerSet(&(tup.t_self), blk, off);
+					tup.t_tableOid = LargeObjectRelationId;
+					tup.t_data = tuphdr;
+
+					if (HeapTupleSatisfiesVisibility(&tup, snapshot, buf))
+					{
+						bool		isnull;
+						Datum		d;
+
+						d = heap_getattr(&tup, Anum_pg_largeobject_loid,
+										 RelationGetDescr(lo_rel), &isnull);
+						if (!isnull)
+						{
+							Oid			loid = DatumGetObjectId(d);
+							bool		found;
+
+							hash_search(seen_oids, &loid, HASH_ENTER, &found);
+							if (!found)
+							{
+								oid_list = lappend_oid(oid_list, loid);
+								if (max_count > 0 && list_length(oid_list) >= max_count)
+								{
+									UnlockReleaseBuffer(buf);
+									goto done_scan;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		UnlockReleaseBuffer(buf);
+
+		if (blk == 0)
+			break;
+	}
+
+done_scan:
+	hash_destroy(seen_oids);
+	table_close(lo_rel, AccessShareLock);
+
+	return oid_list;
+}
+
+/*
+ * Helper: collect OIDs in forward catalog order from
+ * pg_catalog.pg_largeobject_metadata.
+ */
+static List *
+lolor_collect_oids_forward(int max_count)
+{
+	Relation	meta_rel;
+	SysScanDesc scan;
+	HeapTuple	tup;
+	List	   *oid_list = NIL;
+
+	meta_rel = table_open(LargeObjectMetadataRelationId, AccessShareLock);
+	scan = systable_beginscan(meta_rel, LargeObjectMetadataOidIndexId, true,
+							  NULL, 0, NULL);
+
+	while (HeapTupleIsValid(tup = systable_getnext(scan)))
+	{
+		Form_pg_largeobject_metadata form = (Form_pg_largeobject_metadata) GETSTRUCT(tup);
+		Oid			loid = form->oid;
+
+		oid_list = lappend_oid(oid_list, loid);
+		if (max_count > 0 && list_length(oid_list) >= max_count)
+			break;
+	}
+
+	systable_endscan(scan);
+	table_close(meta_rel, AccessShareLock);
+
+	return oid_list;
+}
+
+/*
+ * lolor_migrate: SQL function to batch-migrate native large objects to lolor.
+ *
+ * Parameters:
+ *   arg0: n (int4, default NULL = all)
+ *   arg1: skip_locked (bool, default true)
+ *   arg2: strict_from_end_to_start (bool, default false)
+ *   arg3: run_vacuum (bool, default false)
+ *
+ * Returns: int64 (number of objects migrated)
+ */
+PG_FUNCTION_INFO_V1(lolor_migrate);
+
+Datum
+lolor_migrate(PG_FUNCTION_ARGS)
+{
+	int			max_count = -1;
+	bool		skip_locked = true;
+	bool		strict_from_end_to_start = false;
+	bool		run_vacuum = false;
+	int64		migrated_count = 0;
+	List	   *candidate_oids = NIL;
+	ListCell   *lc;
+
+	/* Only superusers can migrate large objects */
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("lolor.migrate() requires superuser privileges")));
+
+	if (get_LOLOR_LargeObjectMetadataRelationId() == InvalidOid ||
+		get_LOLOR_LargeObjectRelationId() == InvalidOid)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("lolor extension tables are not accessible")));
+
+	if (PG_NARGS() > 0 && !PG_ARGISNULL(0))
+		max_count = PG_GETARG_INT32(0);
+	if (PG_NARGS() > 1 && !PG_ARGISNULL(1))
+		skip_locked = PG_GETARG_BOOL(1);
+	if (PG_NARGS() > 2 && !PG_ARGISNULL(2))
+		strict_from_end_to_start = PG_GETARG_BOOL(2);
+	if (PG_NARGS() > 3 && !PG_ARGISNULL(3))
+		run_vacuum = PG_GETARG_BOOL(3);
+
+	if (max_count == 0)
+		PG_RETURN_INT64(0);
+
+	/* 1. Collect candidate OIDs */
+	if (strict_from_end_to_start)
+		candidate_oids = lolor_collect_oids_reverse(max_count);
+	else
+		candidate_oids = lolor_collect_oids_forward(max_count);
+
+	/* 2. Lock and migrate each candidate */
+	foreach(lc, candidate_oids)
+	{
+		Oid			loid = lfirst_oid(lc);
+		Relation	native_meta;
+		ScanKeyData skey[1];
+		SysScanDesc scan;
+		HeapTuple	tuple;
+		ItemPointerData ctid;
+		TM_Result	tm_result;
+		TM_FailureData tmfd;
+		TupleTableSlot *slot;
+		LockWaitPolicy wait_policy = skip_locked ? LockWaitSkip : LockWaitBlock;
+
+		native_meta = table_open(LargeObjectMetadataRelationId, RowExclusiveLock);
+
+		ScanKeyInit(&skey[0],
+					Anum_pg_largeobject_metadata_oid,
+					BTEqualStrategyNumber, F_OIDEQ,
+					ObjectIdGetDatum(loid));
+
+		scan = systable_beginscan(native_meta, LargeObjectMetadataOidIndexId, true,
+								  NULL, 1, skey);
+		tuple = systable_getnext(scan);
+		if (!HeapTupleIsValid(tuple))
+		{
+			systable_endscan(scan);
+			table_close(native_meta, RowExclusiveLock);
+			continue;
+		}
+
+		ctid = tuple->t_self;
+		systable_endscan(scan);
+
+		slot = table_slot_create(native_meta, NULL);
+		tm_result = table_tuple_lock(native_meta, &ctid,
+									 GetActiveSnapshot(), slot,
+									 GetCurrentCommandId(false),
+									 LockTupleExclusive,
+									 wait_policy, 0, &tmfd);
+		ExecDropSingleTupleTableSlot(slot);
+		table_close(native_meta, RowExclusiveLock);
+
+		if (tm_result != TM_Ok)
+			continue;
+
+		if (oldlo_migrate_one(loid))
+		{
+			migrated_count++;
+			if (max_count > 0 && migrated_count >= max_count)
+				break;
+		}
+	}
+
+	/* 3. Handle run_vacuum if requested */
+	if (run_vacuum && migrated_count > 0)
+	{
+		VacuumParams params;
+
+		memset(&params, 0, sizeof(params));
+		params.options = VACOPT_VACUUM;
+		params.truncate = VACOPTVALUE_ENABLED;
+		params.index_cleanup = VACOPTVALUE_AUTO;
+		params.freeze_min_age = -1;
+		params.freeze_table_age = -1;
+		params.multixact_freeze_min_age = -1;
+		params.multixact_freeze_table_age = -1;
+		params.log_vacuum_min_duration = -1;
+
+		{
+			Relation vac_lo = table_open(LargeObjectRelationId, ShareUpdateExclusiveLock);
+			table_relation_vacuum(vac_lo, &params, NULL);
+			table_close(vac_lo, ShareUpdateExclusiveLock);
+		}
+
+		{
+			Relation vac_meta = table_open(LargeObjectMetadataRelationId, ShareUpdateExclusiveLock);
+			table_relation_vacuum(vac_meta, &params, NULL);
+			table_close(vac_meta, ShareUpdateExclusiveLock);
+		}
+	}
+
+	PG_RETURN_INT64(migrated_count);
+}
+
