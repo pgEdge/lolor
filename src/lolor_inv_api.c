@@ -44,6 +44,7 @@
 #include "catalog/objectaccess.h"
 #include "catalog/pg_largeobject.h"
 #include "catalog/pg_largeobject_metadata.h"
+#include "commands/comment.h"
 #include "libpq/libpq-fs.h"
 #include "miscadmin.h"
 #include "utils/acl.h"
@@ -254,6 +255,7 @@ lolor_inv_open(Oid lobjId, int flags, MemoryContext mcxt)
 	LargeObjectDesc *retval;
 	Snapshot	snapshot = NULL;
 	int			descflags = 0;
+	bool		is_native = false;
 
 	/*
 	 * Historically, no difference is made between (INV_WRITE) and (INV_WRITE
@@ -279,34 +281,87 @@ lolor_inv_open(Oid lobjId, int flags, MemoryContext mcxt)
 
 	/* Can't use LOLOR_LargeObjectExists here because we need to specify snapshot */
 	if (!myLargeObjectExists(lobjId, snapshot))
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_OBJECT),
-				 errmsg("large object %u does not exist", lobjId)));
-
-	/* Apply permission checks, again specifying snapshot */
-	if ((descflags & IFS_RDLOCK) != 0)
 	{
-		if (!lo_compat_privileges &&
-			lolor_largeobject_aclcheck_snapshot(lobjId,
-											 GetUserId(),
-											 ACL_SELECT,
-											 snapshot) != ACLCHECK_OK)
+		if (oldlo_exists(lobjId, snapshot))
+		{
+			is_native = true;
+		}
+		else
+		{
 			ereport(ERROR,
-					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-					 errmsg("permission denied for large object %u",
-							lobjId)));
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("large object %u does not exist", lobjId)));
+		}
 	}
-	if ((descflags & IFS_WRLOCK) != 0)
+
+	if (is_native)
 	{
-		if (!lo_compat_privileges &&
-			lolor_largeobject_aclcheck_snapshot(lobjId,
-											 GetUserId(),
-											 ACL_UPDATE,
-											 snapshot) != ACLCHECK_OK)
-			ereport(ERROR,
-					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-					 errmsg("permission denied for large object %u",
-							lobjId)));
+		/*
+		 * If opened for write, migrate on the fly to lolor storage.
+		 */
+		if ((descflags & IFS_WRLOCK) != 0)
+		{
+			if (!lo_compat_privileges &&
+				oldlo_aclcheck(lobjId, GetUserId(), ACL_UPDATE, snapshot) != ACLCHECK_OK)
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						 errmsg("permission denied for large object %u", lobjId)));
+
+			if (!oldlo_migrate_one(lobjId))
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_OBJECT),
+						 errmsg("large object %u does not exist", lobjId)));
+
+			is_native = false;
+
+			if (!lo_compat_privileges &&
+				lolor_largeobject_aclcheck_snapshot(lobjId,
+													GetUserId(),
+													ACL_UPDATE,
+													snapshot) != ACLCHECK_OK)
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						 errmsg("permission denied for large object %u", lobjId)));
+		}
+		else
+		{
+			/* Read-only access to native object */
+			if (!lo_compat_privileges &&
+				oldlo_aclcheck(lobjId, GetUserId(), ACL_SELECT, snapshot) != ACLCHECK_OK)
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						 errmsg("permission denied for large object %u", lobjId)));
+
+			descflags |= IFS_NATIVE;
+		}
+	}
+	else
+	{
+		/* Apply permission checks, again specifying snapshot */
+		if ((descflags & IFS_RDLOCK) != 0)
+		{
+			if (!lo_compat_privileges &&
+				lolor_largeobject_aclcheck_snapshot(lobjId,
+													GetUserId(),
+													ACL_SELECT,
+													snapshot) != ACLCHECK_OK)
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						 errmsg("permission denied for large object %u",
+								lobjId)));
+		}
+		if ((descflags & IFS_WRLOCK) != 0)
+		{
+			if (!lo_compat_privileges &&
+				lolor_largeobject_aclcheck_snapshot(lobjId,
+													GetUserId(),
+													ACL_UPDATE,
+													snapshot) != ACLCHECK_OK)
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						 errmsg("permission denied for large object %u",
+								lobjId)));
+		}
 	}
 
 	/* OK to create a descriptor */
@@ -350,12 +405,19 @@ lolor_inv_drop(Oid lobjId)
 	ObjectAddress object;
 
 	/*
-	 * Delete any comments and dependencies on the large object
+	 * Delete any comments and dependencies on the large object.
+	 *
+	 * Note: core PostgreSQL's dependency system only recognizes
+	 * LargeObjectRelationId as the object class for large objects.
 	 */
-	object.classId = get_LOLOR_LargeObjectRelationId();
+	object.classId = LargeObjectRelationId;
 	object.objectId = lobjId;
 	object.objectSubId = 0;
 	performDeletion(&object, DROP_CASCADE, PERFORM_DELETION_SKIP_ORIGINAL);
+
+	deleteSharedDependencyRecordsFor(get_LOLOR_LargeObjectRelationId(), lobjId, 0);
+	DeleteComments(lobjId, get_LOLOR_LargeObjectRelationId(), 0);
+
 	LOLOR_LargeObjectDrop(object.objectId);
 
 	/*
@@ -429,6 +491,9 @@ lolor_inv_seek(LargeObjectDesc *obj_desc, int64 offset, int whence)
 
 	Assert(obj_desc);
 
+	if (obj_desc->flags & IFS_NATIVE)
+		return oldlo_seek(obj_desc, offset, whence);
+
 	/*
 	 * We allow seek/tell if you have either read or write permission, so no
 	 * need for a permission check here.
@@ -476,6 +541,9 @@ lolor_inv_tell(LargeObjectDesc *obj_desc)
 {
 	Assert(obj_desc);
 
+	if (obj_desc->flags & IFS_NATIVE)
+		return oldlo_tell(obj_desc);
+
 	/*
 	 * We allow seek/tell if you have either read or write permission, so no
 	 * need for a permission check here.
@@ -499,6 +567,9 @@ lolor_inv_read(LargeObjectDesc *obj_desc, char *buf, int nbytes)
 
 	Assert(obj_desc);
 	Assert(buf != NULL);
+
+	if (obj_desc->flags & IFS_NATIVE)
+		return oldlo_read(obj_desc, buf, nbytes);
 
 	if ((obj_desc->flags & IFS_RDLOCK) == 0)
 		ereport(ERROR,
