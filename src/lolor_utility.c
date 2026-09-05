@@ -39,6 +39,7 @@
 #include "tcop/utility.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
+#include "utils/catcache.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
@@ -108,6 +109,24 @@ lolor_is_installed(void)
 		return false;
 	return true;
 }
+
+/*
+ * Check whether lolor is currently enabled (functions point to lolor).
+ * When lolor.disable() is called, pg_catalog.lo_open is renamed to lolor_lo_open.
+ */
+static bool
+lolor_is_enabled(void)
+{
+	CatCList   *catlist;
+	bool		enabled = true;
+
+	catlist = SearchSysCacheList1(PROCNAMEARGSNSP, CStringGetDatum("lolor_lo_open"));
+	if (catlist->n_members > 0)
+		enabled = false;
+	ReleaseSysCacheList(catlist);
+	return enabled;
+}
+
 
 /*
  * Record a shared dependency on a role for lolor.pg_largeobject_metadata.
@@ -256,6 +275,7 @@ Datum
 lolor_cleanup_dependencies(PG_FUNCTION_ARGS)
 {
 	Relation	sdepRel;
+	Relation	metaRel;
 	ScanKeyData key[4];
 	SysScanDesc scan;
 	HeapTuple	tup;
@@ -264,11 +284,23 @@ lolor_cleanup_dependencies(PG_FUNCTION_ARGS)
 	List	   *roles_to_check = NIL;
 	ListCell   *lc;
 
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to cleanup lolor dependencies")));
+
 	if (!lolor_is_installed())
 		PG_RETURN_INT32(0);
 
 	metaRelId = get_LOLOR_LargeObjectMetadataRelationId();
+
+	/*
+	 * Acquire ShareLock on lolor.pg_largeobject_metadata to serialize
+	 * against concurrent large object creation (which acquires RowExclusiveLock).
+	 */
+	metaRel = table_open(metaRelId, ShareLock);
 	sdepRel = table_open(SharedDependRelationId, RowExclusiveLock);
+
 
 	ScanKeyInit(&key[0],
 				Anum_pg_shdepend_dbid,
@@ -325,8 +357,10 @@ lolor_cleanup_dependencies(PG_FUNCTION_ARGS)
 	}
 
 	table_close(sdepRel, RowExclusiveLock);
+	table_close(metaRel, ShareLock);
 
 	PG_RETURN_INT32(deleted_count);
+
 }
 
 /*
@@ -616,8 +650,9 @@ lolor_grant_large_object(GrantStmt *stmt, QueryCompletion *qc)
 	if (stmt->privileges == NIL)
 	{
 		all_privs = true;
-		privileges = ACL_NO_RIGHTS;
+		privileges = ACL_ALL_RIGHTS_LARGEOBJECT;
 	}
+
 	else
 	{
 		all_privs = false;
@@ -780,7 +815,7 @@ lolor_ProcessUtility(PlannedStmt *pstmt,
 {
 	Node	   *parsetree = pstmt->utilityStmt;
 
-	if (lolor_is_installed())
+	if (lolor_is_installed() && lolor_is_enabled())
 	{
 		if (IsA(parsetree, AlterOwnerStmt))
 		{

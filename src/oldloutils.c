@@ -417,21 +417,11 @@ oldlo_read(LargeObjectDesc *obj_desc, char *buf, int nbytes)
 int
 oldlo_drop(Oid lobjId)
 {
-	ObjectAddress object;
-
 	oldlo_close_lo_relation(false);
 
-	object.classId = LargeObjectRelationId;
-	object.objectId = lobjId;
-	object.objectSubId = 0;
-	performDeletion(&object, DROP_CASCADE, PERFORM_DELETION_SKIP_ORIGINAL);
-
-	LargeObjectDrop(object.objectId);
-
-	CommandCounterIncrement();
-
-	return 1;
+	return inv_drop(lobjId);
 }
+
 
 /*
  * Migrate a single large object on-the-fly from native storage to lolor storage.
@@ -554,7 +544,10 @@ oldlo_migrate_one(Oid lobjId)
 		bool		dnulls[Natts_pg_largeobject];
 		HeapTuple	new_data_tup;
 
+		CHECK_FOR_INTERRUPTS();
+
 		oldlo_getdatafield(olddata, &datafield, &len, &pfreeit);
+
 
 		memset(dvalues, 0, sizeof(dvalues));
 		memset(dnulls, false, sizeof(dnulls));
@@ -614,14 +607,6 @@ lolor_collect_oids_reverse(int max_count)
 	HASHCTL		ctl;
 	Snapshot	snapshot;
 
-	lo_rel = table_open(LargeObjectRelationId, AccessShareLock);
-	nblocks = RelationGetNumberOfBlocks(lo_rel);
-	if (nblocks == 0)
-	{
-		table_close(lo_rel, AccessShareLock);
-		return NIL;
-	}
-
 	memset(&ctl, 0, sizeof(ctl));
 	ctl.keysize = sizeof(Oid);
 	ctl.entrysize = sizeof(Oid);
@@ -633,13 +618,18 @@ lolor_collect_oids_reverse(int max_count)
 
 	snapshot = GetActiveSnapshot();
 
+	lo_rel = table_open(LargeObjectRelationId, AccessShareLock);
+	nblocks = RelationGetNumberOfBlocks(lo_rel);
+
 	/* Scan blocks backwards from the last block down to 0 */
-	for (blk = nblocks - 1; blk != InvalidBlockNumber; blk--)
+	for (blk = (nblocks > 0 ? nblocks - 1 : InvalidBlockNumber); blk != InvalidBlockNumber; blk--)
 	{
 		Buffer		buf;
 		Page		page;
 		OffsetNumber maxoff;
 		OffsetNumber off;
+
+		CHECK_FOR_INTERRUPTS();
 
 		buf = ReadBuffer(lo_rel, blk);
 		LockBuffer(buf, BUFFER_LOCK_SHARE);
@@ -696,12 +686,46 @@ lolor_collect_oids_reverse(int max_count)
 			break;
 	}
 
+	/*
+	 * Also sweep pg_largeobject_metadata for any empty (0-page) large objects
+	 * that have no rows in pg_largeobject.
+	 */
+	if (max_count <= 0 || list_length(oid_list) < max_count)
+	{
+		Relation	meta_rel;
+		SysScanDesc mscan;
+		HeapTuple	mtup;
+
+		meta_rel = table_open(LargeObjectMetadataRelationId, AccessShareLock);
+		mscan = systable_beginscan(meta_rel, LargeObjectMetadataOidIndexId, true,
+								   NULL, 0, NULL);
+		while (HeapTupleIsValid(mtup = systable_getnext(mscan)))
+		{
+			Form_pg_largeobject_metadata form = (Form_pg_largeobject_metadata) GETSTRUCT(mtup);
+			Oid			loid = form->oid;
+			bool		found;
+
+			CHECK_FOR_INTERRUPTS();
+
+			hash_search(seen_oids, &loid, HASH_ENTER, &found);
+			if (!found)
+			{
+				oid_list = lappend_oid(oid_list, loid);
+				if (max_count > 0 && list_length(oid_list) >= max_count)
+					break;
+			}
+		}
+		systable_endscan(mscan);
+		table_close(meta_rel, AccessShareLock);
+	}
+
 done_scan:
 	hash_destroy(seen_oids);
 	table_close(lo_rel, AccessShareLock);
 
 	return oid_list;
 }
+
 
 /*
  * Helper: collect OIDs in forward catalog order from
@@ -772,7 +796,13 @@ lolor_migrate(PG_FUNCTION_ARGS)
 				 errmsg("lolor extension tables are not accessible")));
 
 	if (PG_NARGS() > 0 && !PG_ARGISNULL(0))
+	{
 		max_count = PG_GETARG_INT32(0);
+		if (max_count < 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("lolor.migrate() batch size must not be negative")));
+	}
 	if (PG_NARGS() > 1 && !PG_ARGISNULL(1))
 		skip_locked = PG_GETARG_BOOL(1);
 	if (PG_NARGS() > 2 && !PG_ARGISNULL(2))
@@ -783,70 +813,99 @@ lolor_migrate(PG_FUNCTION_ARGS)
 	if (max_count == 0)
 		PG_RETURN_INT64(0);
 
-	/* 1. Collect candidate OIDs */
-	if (strict_from_end_to_start)
-		candidate_oids = lolor_collect_oids_reverse(max_count);
-	else
-		candidate_oids = lolor_collect_oids_forward(max_count);
-
-	/* 2. Lock and migrate each candidate */
-	foreach(lc, candidate_oids)
+	while (true)
 	{
-		Oid			loid = lfirst_oid(lc);
-		Relation	native_meta;
-		ScanKeyData skey[1];
-		SysScanDesc scan;
-		HeapTuple	tuple;
-		ItemPointerData ctid;
-		TM_Result	tm_result;
-		TM_FailureData tmfd;
-		TupleTableSlot *slot;
-		LockWaitPolicy wait_policy = skip_locked ? LockWaitSkip : LockWaitBlock;
+		int			batch_limit;
+		int64		batch_migrated = 0;
 
-		native_meta = table_open(LargeObjectMetadataRelationId, RowExclusiveLock);
+		CHECK_FOR_INTERRUPTS();
 
-		ScanKeyInit(&skey[0],
-					Anum_pg_largeobject_metadata_oid,
-					BTEqualStrategyNumber, F_OIDEQ,
-					ObjectIdGetDatum(loid));
+		if (max_count > 0)
+			batch_limit = max_count - (int) migrated_count;
+		else
+			batch_limit = 10000;
 
-		scan = systable_beginscan(native_meta, LargeObjectMetadataOidIndexId, true,
-								  NULL, 1, skey);
-		tuple = systable_getnext(scan);
-		if (!HeapTupleIsValid(tuple))
+		/* 1. Collect candidate OIDs */
+		if (strict_from_end_to_start)
+			candidate_oids = lolor_collect_oids_reverse(batch_limit);
+		else
+			candidate_oids = lolor_collect_oids_forward(batch_limit);
+
+		if (candidate_oids == NIL)
+			break;
+
+		/* 2. Lock and migrate each candidate */
+		foreach(lc, candidate_oids)
 		{
+			Oid			loid = lfirst_oid(lc);
+			Relation	native_meta;
+			ScanKeyData skey[1];
+			SysScanDesc scan;
+			HeapTuple	tuple;
+			ItemPointerData ctid;
+			TM_Result	tm_result;
+			TM_FailureData tmfd;
+			TupleTableSlot *slot;
+			LockWaitPolicy wait_policy = skip_locked ? LockWaitSkip : LockWaitBlock;
+
+			CHECK_FOR_INTERRUPTS();
+
+			native_meta = table_open(LargeObjectMetadataRelationId, RowExclusiveLock);
+
+			ScanKeyInit(&skey[0],
+						Anum_pg_largeobject_metadata_oid,
+						BTEqualStrategyNumber, F_OIDEQ,
+						ObjectIdGetDatum(loid));
+
+			scan = systable_beginscan(native_meta, LargeObjectMetadataOidIndexId, true,
+									  NULL, 1, skey);
+			tuple = systable_getnext(scan);
+			if (!HeapTupleIsValid(tuple))
+			{
+				systable_endscan(scan);
+				table_close(native_meta, RowExclusiveLock);
+				continue;
+			}
+
+			ctid = tuple->t_self;
 			systable_endscan(scan);
+
+			slot = table_slot_create(native_meta, NULL);
+			tm_result = table_tuple_lock(native_meta, &ctid,
+										 GetActiveSnapshot(), slot,
+										 GetCurrentCommandId(false),
+										 LockTupleExclusive,
+										 wait_policy, 0, &tmfd);
+			ExecDropSingleTupleTableSlot(slot);
 			table_close(native_meta, RowExclusiveLock);
-			continue;
+
+			if (tm_result != TM_Ok)
+				continue;
+
+			if (oldlo_migrate_one(loid))
+			{
+				migrated_count++;
+				batch_migrated++;
+				if (max_count > 0 && migrated_count >= max_count)
+					break;
+			}
 		}
 
-		ctid = tuple->t_self;
-		systable_endscan(scan);
+		list_free(candidate_oids);
 
-		slot = table_slot_create(native_meta, NULL);
-		tm_result = table_tuple_lock(native_meta, &ctid,
-									 GetActiveSnapshot(), slot,
-									 GetCurrentCommandId(false),
-									 LockTupleExclusive,
-									 wait_policy, 0, &tmfd);
-		ExecDropSingleTupleTableSlot(slot);
-		table_close(native_meta, RowExclusiveLock);
+		/* Stop if no progress was made in this batch (all locked/skipped) */
+		if (batch_migrated == 0)
+			break;
 
-		if (tm_result != TM_Ok)
-			continue;
-
-		if (oldlo_migrate_one(loid))
-		{
-			migrated_count++;
-			if (max_count > 0 && migrated_count >= max_count)
-				break;
-		}
+		if (max_count > 0 && migrated_count >= max_count)
+			break;
 	}
 
 	/* 3. Handle run_vacuum if requested */
 	if (run_vacuum && migrated_count > 0)
 	{
 		VacuumParams params;
+		BufferAccessStrategy bstrategy;
 
 		memset(&params, 0, sizeof(params));
 		params.options = VACOPT_VACUUM;
@@ -856,20 +915,29 @@ lolor_migrate(PG_FUNCTION_ARGS)
 		params.freeze_table_age = -1;
 		params.multixact_freeze_min_age = -1;
 		params.multixact_freeze_table_age = -1;
+#if PG_VERSION_NUM >= 180000
 		params.log_vacuum_min_duration = -1;
+#else
+		params.log_min_duration = -1;
+#endif
+
+		bstrategy = GetAccessStrategy(BAS_VACUUM);
 
 		{
 			Relation vac_lo = table_open(LargeObjectRelationId, ShareUpdateExclusiveLock);
-			table_relation_vacuum(vac_lo, &params, NULL);
+			table_relation_vacuum(vac_lo, &params, bstrategy);
 			table_close(vac_lo, ShareUpdateExclusiveLock);
 		}
 
 		{
 			Relation vac_meta = table_open(LargeObjectMetadataRelationId, ShareUpdateExclusiveLock);
-			table_relation_vacuum(vac_meta, &params, NULL);
+			table_relation_vacuum(vac_meta, &params, bstrategy);
 			table_close(vac_meta, ShareUpdateExclusiveLock);
 		}
+
+		FreeAccessStrategy(bstrategy);
 	}
+
 
 	PG_RETURN_INT64(migrated_count);
 }

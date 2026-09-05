@@ -417,11 +417,11 @@ SELECT lomacl IS NOT NULL AS has_acl FROM lolor.pg_largeobject_metadata WHERE oi
 
 -- Grant ALL PRIVILEGES
 GRANT ALL PRIVILEGES ON LARGE OBJECT 4001 TO lolor_test_user2;
-SELECT lomacl IS NOT NULL AS has_acl FROM lolor.pg_largeobject_metadata WHERE oid = 4001;
+SELECT lomacl::text LIKE '%lolor_test_user2=rw/%' AS has_all_privs FROM lolor.pg_largeobject_metadata WHERE oid = 4001;
 
 -- Revoke ALL PRIVILEGES
 REVOKE ALL PRIVILEGES ON LARGE OBJECT 4001 FROM lolor_test_user2;
-SELECT lomacl IS NOT NULL AS has_acl FROM lolor.pg_largeobject_metadata WHERE oid = 4001;
+SELECT lomacl::text NOT LIKE '%lolor_test_user2%' AS revoked_all FROM lolor.pg_largeobject_metadata WHERE oid = 4001;
 
 -- Error on non-existent object
 GRANT SELECT ON LARGE OBJECT 999999 TO lolor_test_user2;
@@ -434,6 +434,11 @@ GRANT SELECT ON LARGE OBJECT 4001 TO lolor_test_user2;
 -- Dropping user1 or user2 should fail because they have dependencies
 DROP ROLE lolor_test_user1;
 DROP ROLE lolor_test_user2;
+
+-- Test security: non-superuser should be denied from cleanup_dependencies
+SET ROLE lolor_test_user1;
+SELECT lolor.cleanup_dependencies();
+RESET ROLE;
 
 -- Now transfer ownership back to current user and revoke privileges from user2
 ALTER LARGE OBJECT 4001 OWNER TO CURRENT_USER;
@@ -451,8 +456,11 @@ SELECT lolor.cleanup_dependencies() >= 2 AS cleaned_deps;
 DROP ROLE lolor_test_user1;
 DROP ROLE lolor_test_user2;
 
--- Cleanup
+-- Verify DeleteComments removes comment on lo_unlink
+COMMENT ON LARGE OBJECT 4001 IS 'Comment before unlink';
+SELECT count(*) FROM pg_description WHERE objoid = 4001 AND classoid = 'pg_largeobject'::regclass;
 SELECT lo_unlink(4001);
+SELECT count(*) FROM pg_description WHERE objoid = 4001 AND classoid = 'pg_largeobject'::regclass;
 SELECT lo_unlink(4002);
 DROP EXTENSION lolor;
 
@@ -522,6 +530,28 @@ SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 5022;
 
 -- 4. Alias test: lolor.lolor_migrate
 SELECT lolor.lolor_migrate(0);
+
+-- 5. Negative batch size validation
+SELECT lolor.migrate(-1);
+
+-- 6. Empty (0-page) large object migrated by reverse mode
+SELECT lolor.disable();
+SELECT lo_create(5030);
+SELECT lolor.enable();
+SELECT lolor.migrate(strict_from_end_to_start => true);
+SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 5030;
+SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 5030;
+SELECT lo_unlink(5030);
+
+-- 7. Disabled state passthrough for utility commands
+SELECT lolor.disable();
+SELECT lo_create(5031);
+ALTER LARGE OBJECT 5031 OWNER TO CURRENT_ROLE;
+SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 5031;
+SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 5031;
+SELECT lo_unlink(5031);
+SELECT lolor.enable();
+
 
 
 -- Cleanup
