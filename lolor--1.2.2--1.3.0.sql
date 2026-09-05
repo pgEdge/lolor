@@ -406,6 +406,9 @@ RETURNS integer
 AS 'MODULE_PATHNAME', 'lolor_cleanup_dependencies'
 LANGUAGE C STRICT VOLATILE;
 
+REVOKE EXECUTE ON FUNCTION lolor.cleanup_dependencies() FROM PUBLIC;
+
+
 /*
  * lolor.migrate()
  *

@@ -413,7 +413,7 @@ lolor_inv_drop(Oid lobjId)
 	performDeletion(&object, DROP_CASCADE, PERFORM_DELETION_SKIP_ORIGINAL);
 
 	deleteSharedDependencyRecordsFor(get_LOLOR_LargeObjectRelationId(), lobjId, 0);
-	DeleteComments(lobjId, get_LOLOR_LargeObjectRelationId(), 0);
+	DeleteComments(lobjId, LargeObjectRelationId, 0);
 
 	LOLOR_LargeObjectDrop(object.objectId);
 
