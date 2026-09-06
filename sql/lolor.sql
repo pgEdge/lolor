@@ -470,7 +470,7 @@ DROP EXTENSION lolor;
 CREATE EXTENSION lolor;
 
 -- Ensure any leftover native large objects are migrated first
-SELECT lolor.migrate() >= 0 AS clean_start;
+SELECT lolor.lolor_migrate() >= 0 AS clean_start;
 
 -- 1. Create 5 native large objects
 SELECT lolor.disable();
@@ -486,17 +486,17 @@ SELECT count(*) AS native_cnt FROM pg_catalog.pg_largeobject_metadata WHERE oid 
 SELECT count(*) AS lolor_cnt FROM lolor.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
 
 -- Migrate batch of 2
-SELECT lolor.migrate(2);
+CALL lolor.migrate(2);
 SELECT count(*) AS native_cnt FROM pg_catalog.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
 SELECT count(*) AS lolor_cnt FROM lolor.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
 
 -- Migrate all remaining
-SELECT lolor.migrate();
+CALL lolor.migrate();
 SELECT count(*) AS native_cnt FROM pg_catalog.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
 SELECT count(*) AS lolor_cnt FROM lolor.pg_largeobject_metadata WHERE oid BETWEEN 5001 AND 5005;
 
 -- Calling again returns 0
-SELECT lolor.migrate();
+CALL lolor.migrate();
 
 -- 2. strict_from_end_to_start: reverse physical scan
 SELECT lolor.disable();
@@ -506,12 +506,12 @@ SELECT lo_from_bytea(5013, 'End to start 3');
 SELECT lolor.enable();
 
 -- Reverse scan should pick 5013 first (written last at physical end)
-SELECT lolor.migrate(1, strict_from_end_to_start => true);
+CALL lolor.migrate(1, strict_from_end_to_start => true);
 SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 5013;
 SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 5013;
 
 -- Migrate remaining objects with reverse scan
-SELECT lolor.migrate(strict_from_end_to_start => true);
+CALL lolor.migrate(strict_from_end_to_start => true);
 SELECT count(*) AS native_cnt FROM pg_catalog.pg_largeobject_metadata WHERE oid BETWEEN 5011 AND 5013;
 SELECT count(*) AS lolor_cnt FROM lolor.pg_largeobject_metadata WHERE oid BETWEEN 5011 AND 5013;
 
@@ -521,24 +521,27 @@ SELECT lo_from_bytea(5021, 'Vacuum test 1');
 SELECT lo_from_bytea(5022, 'Vacuum test 2');
 SELECT lolor.enable();
 
--- Function with run_vacuum => true
-SELECT lolor.migrate(1, run_vacuum => true);
+-- Procedure with run_vacuum => true
+CALL lolor.migrate(1, run_vacuum => true);
 SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 5021;
 
-SELECT lolor.migrate(1, run_vacuum => true);
+CALL lolor.migrate(1, run_vacuum => true);
 SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 5022;
 
--- 4. Alias test: lolor.lolor_migrate
+-- Dedicated vacuum helper test
+SELECT lolor.vacuum_native_storage();
+
+-- 4. Core function test: lolor.lolor_migrate
 SELECT lolor.lolor_migrate(0);
 
 -- 5. Negative batch size validation
-SELECT lolor.migrate(-1);
+CALL lolor.migrate(-1);
 
 -- 6. Empty (0-page) large object migrated by reverse mode
 SELECT lolor.disable();
 SELECT lo_create(5030);
 SELECT lolor.enable();
-SELECT lolor.migrate(strict_from_end_to_start => true);
+CALL lolor.migrate(strict_from_end_to_start => true);
 SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 5030;
 SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = 5030;
 SELECT lo_unlink(5030);

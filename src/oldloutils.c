@@ -417,7 +417,7 @@ oldlo_read(LargeObjectDesc *obj_desc, char *buf, int nbytes)
 int
 oldlo_drop(Oid lobjId)
 {
-	oldlo_close_lo_relation(false);
+	oldlo_close_lo_relation(true);
 
 	return inv_drop(lobjId);
 }
@@ -448,7 +448,7 @@ oldlo_migrate_one(Oid lobjId)
 	CatalogIndexState indstate;
 	char	   *comment;
 
-	oldlo_close_lo_relation(false);
+	oldlo_close_lo_relation(true);
 
 	/*
 	 * 1. Read metadata from native catalog.
@@ -578,6 +578,12 @@ oldlo_migrate_one(Oid lobjId)
 	 * 5. Save comment if any, then drop native object via inv_drop().
 	 */
 	comment = GetComment(lobjId, LargeObjectRelationId, 0);
+
+	/*
+	 * Ensure any cached relation references are closed before inv_drop()
+	 * modifies the native catalogs.
+	 */
+	oldlo_close_lo_relation(true);
 
 	inv_drop(lobjId);
 
@@ -766,7 +772,6 @@ lolor_collect_oids_forward(int max_count)
  *   arg0: n (int4, default NULL = all)
  *   arg1: skip_locked (bool, default true)
  *   arg2: strict_from_end_to_start (bool, default false)
- *   arg3: run_vacuum (bool, default false)
  *
  * Returns: int64 (number of objects migrated)
  */
@@ -778,7 +783,6 @@ lolor_migrate(PG_FUNCTION_ARGS)
 	int			max_count = -1;
 	bool		skip_locked = true;
 	bool		strict_from_end_to_start = false;
-	bool		run_vacuum = false;
 	int64		migrated_count = 0;
 	List	   *candidate_oids = NIL;
 	ListCell   *lc;
@@ -807,8 +811,6 @@ lolor_migrate(PG_FUNCTION_ARGS)
 		skip_locked = PG_GETARG_BOOL(1);
 	if (PG_NARGS() > 2 && !PG_ARGISNULL(2))
 		strict_from_end_to_start = PG_GETARG_BOOL(2);
-	if (PG_NARGS() > 3 && !PG_ARGISNULL(3))
-		run_vacuum = PG_GETARG_BOOL(3);
 
 	if (max_count == 0)
 		PG_RETURN_INT64(0);
@@ -901,44 +903,58 @@ lolor_migrate(PG_FUNCTION_ARGS)
 			break;
 	}
 
-	/* 3. Handle run_vacuum if requested */
-	if (run_vacuum && migrated_count > 0)
-	{
-		VacuumParams params;
-		BufferAccessStrategy bstrategy;
+	PG_RETURN_INT64(migrated_count);
+}
 
-		memset(&params, 0, sizeof(params));
-		params.options = VACOPT_VACUUM;
-		params.truncate = VACOPTVALUE_ENABLED;
-		params.index_cleanup = VACOPTVALUE_AUTO;
-		params.freeze_min_age = -1;
-		params.freeze_table_age = -1;
-		params.multixact_freeze_min_age = -1;
-		params.multixact_freeze_table_age = -1;
+/*
+ * lolor_vacuum_native_storage: SQL function to vacuum native large object catalogs.
+ *
+ * Runs table_relation_vacuum on pg_catalog.pg_largeobject and
+ * pg_catalog.pg_largeobject_metadata. Requires superuser privileges.
+ */
+PG_FUNCTION_INFO_V1(lolor_vacuum_native_storage);
+
+Datum
+lolor_vacuum_native_storage(PG_FUNCTION_ARGS)
+{
+	VacuumParams params;
+	BufferAccessStrategy bstrategy;
+
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to vacuum native large object catalogs")));
+
+	memset(&params, 0, sizeof(params));
+	params.options = VACOPT_VACUUM;
+	params.truncate = VACOPTVALUE_ENABLED;
+	params.index_cleanup = VACOPTVALUE_AUTO;
+	params.freeze_min_age = -1;
+	params.freeze_table_age = -1;
+	params.multixact_freeze_min_age = -1;
+	params.multixact_freeze_table_age = -1;
 #if PG_VERSION_NUM >= 180000
-		params.log_vacuum_min_duration = -1;
+	params.log_vacuum_min_duration = -1;
 #else
-		params.log_min_duration = -1;
+	params.log_min_duration = -1;
 #endif
 
-		bstrategy = GetAccessStrategy(BAS_VACUUM);
+	bstrategy = GetAccessStrategy(BAS_VACUUM);
 
-		{
-			Relation vac_lo = table_open(LargeObjectRelationId, ShareUpdateExclusiveLock);
-			table_relation_vacuum(vac_lo, &params, bstrategy);
-			table_close(vac_lo, ShareUpdateExclusiveLock);
-		}
-
-		{
-			Relation vac_meta = table_open(LargeObjectMetadataRelationId, ShareUpdateExclusiveLock);
-			table_relation_vacuum(vac_meta, &params, bstrategy);
-			table_close(vac_meta, ShareUpdateExclusiveLock);
-		}
-
-		FreeAccessStrategy(bstrategy);
+	{
+		Relation vac_lo = table_open(LargeObjectRelationId, ShareUpdateExclusiveLock);
+		table_relation_vacuum(vac_lo, &params, bstrategy);
+		table_close(vac_lo, NoLock);
 	}
 
+	{
+		Relation vac_meta = table_open(LargeObjectMetadataRelationId, ShareUpdateExclusiveLock);
+		table_relation_vacuum(vac_meta, &params, bstrategy);
+		table_close(vac_meta, NoLock);
+	}
 
-	PG_RETURN_INT64(migrated_count);
+	FreeAccessStrategy(bstrategy);
+
+	PG_RETURN_VOID();
 }
 

@@ -112,6 +112,7 @@ extern Datum lolor_cleanup_dependencies(PG_FUNCTION_ARGS);
 
 /* oldloutils.c */
 extern Datum lolor_migrate(PG_FUNCTION_ARGS);
+extern Datum lolor_vacuum_native_storage(PG_FUNCTION_ARGS);
 
 #endif							/* LOLOR_LARGEOBJECT_H */
 

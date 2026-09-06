@@ -377,35 +377,74 @@ REVOKE EXECUTE ON FUNCTION lolor.cleanup_dependencies() FROM PUBLIC;
 
 
 /*
- * lolor.migrate()
+ * lolor.vacuum_native_storage()
  *
- * Incrementally migrate native large objects into lolor storage.
+ * Vacuum native large object catalogs (pg_largeobject and pg_largeobject_metadata)
+ * to reclaim storage and truncate empty pages.
+ */
+CREATE FUNCTION lolor.vacuum_native_storage()
+RETURNS void
+AS 'MODULE_PATHNAME', 'lolor_vacuum_native_storage'
+LANGUAGE C VOLATILE;
+
+REVOKE EXECUTE ON FUNCTION lolor.vacuum_native_storage() FROM PUBLIC;
+
+/*
+ * lolor.lolor_migrate()
+ *
+ * Core C implementation for batch migration of native large objects into lolor storage.
  *
  * Parameters:
  *   n                        - max number of large objects to migrate (NULL = all)
  *   skip_locked              - if true, skip objects locked by other sessions
  *   strict_from_end_to_start - if true, select objects by reverse physical block scan
- *   run_vacuum               - if true, vacuum relations after migration
  */
-CREATE FUNCTION lolor.migrate(
+CREATE FUNCTION lolor.lolor_migrate(
     n integer DEFAULT NULL,
     skip_locked boolean DEFAULT true,
-    strict_from_end_to_start boolean DEFAULT false,
-    run_vacuum boolean DEFAULT false
+    strict_from_end_to_start boolean DEFAULT false
 )
 RETURNS bigint
 AS 'MODULE_PATHNAME', 'lolor_migrate'
 LANGUAGE C VOLATILE;
 
-CREATE FUNCTION lolor.lolor_migrate(
+REVOKE EXECUTE ON FUNCTION lolor.lolor_migrate(integer, boolean, boolean) FROM PUBLIC;
+
+/*
+ * lolor.migrate()
+ *
+ * Procedure to incrementally migrate native large objects into lolor storage.
+ *
+ * When run_vacuum is true and objects were migrated, commits the migration
+ * transaction and runs vacuum in a separate transaction so that the deleted
+ * tuples can be reclaimed and space truncated back to the filesystem.
+ *
+ * Parameters:
+ *   n                        - max number of large objects to migrate (NULL = all)
+ *   skip_locked              - if true, skip objects locked by other sessions
+ *   strict_from_end_to_start - if true, select objects by reverse physical block scan
+ *   run_vacuum               - if true, commit and vacuum relations in a separate transaction
+ *   migrated                 - INOUT: number of large objects migrated
+ */
+CREATE PROCEDURE lolor.migrate(
     n integer DEFAULT NULL,
     skip_locked boolean DEFAULT true,
     strict_from_end_to_start boolean DEFAULT false,
-    run_vacuum boolean DEFAULT false
+    run_vacuum boolean DEFAULT false,
+    INOUT migrated bigint DEFAULT 0
 )
-RETURNS bigint
-AS 'MODULE_PATHNAME', 'lolor_migrate'
-LANGUAGE C VOLATILE;
+LANGUAGE plpgsql AS $$
+BEGIN
+    migrated := lolor.lolor_migrate(n, skip_locked, strict_from_end_to_start);
+    IF run_vacuum AND migrated > 0 THEN
+        COMMIT;
+        PERFORM lolor.vacuum_native_storage();
+    END IF;
+END;
+$$;
+
+REVOKE EXECUTE ON PROCEDURE lolor.migrate(integer, boolean, boolean, boolean, bigint) FROM PUBLIC;
+
 
 
 
