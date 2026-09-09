@@ -9,8 +9,20 @@ echo ". /home/pgedge/pgedge/pg${PG_VER}/pg${PG_VER}.env" >> /home/pgedge/.bashrc
 # deprecated pgedge CLI.
 initdb -D "$PGDATA" -U admin --encoding=UTF8 --locale=C
 
+# PostgreSQL 16.15, 17.11, 18.6 and 19 only allow logical decoding through an
+# output plugin named in output_plugin_libraries, which defaults to
+# 'pgoutput, test_decoding'.  spock's plugin is not in that list, so
+# CREATE_REPLICATION_SLOT fails, every apply worker exits and restarts, and no
+# subscription ever reaches sync.  Older minors do not have the parameter and
+# refuse to start when it appears in the configuration, so ask the binary.
+OUTPUT_PLUGIN_LIBRARIES=""
+if postgres --describe-config 2>/dev/null | grep -q '^output_plugin_libraries'; then
+  OUTPUT_PLUGIN_LIBRARIES="output_plugin_libraries = 'pgoutput, test_decoding, spock_output'"
+fi
+
 cat >> "$PGDATA/postgresql.conf" <<_EOF_
 listen_addresses = '*'
+$OUTPUT_PLUGIN_LIBRARIES
 wal_level = logical
 track_commit_timestamp = on
 max_worker_processes = 32
@@ -33,6 +45,7 @@ while ! pg_isready -h /tmp; do
   sleep 1
 done
 
+
 # The admin user is what the tests connect as; the pgedge user is used for
 # the spock node and subscription DSNs (and matches the OS user, so plain
 # psql on the nodes works).
@@ -51,20 +64,30 @@ _EOF_
 
 IFS=',' read -r -a peer_names <<< "$PEER_NAMES"
 
+# Bounded: an unbounded wait here leaves the container alive with the
+# temporary postgres still listening, so pg_isready and the health check keep
+# succeeding while setup never finishes.  A node stuck in that state looks
+# healthy to the test harness, which then blocks with no indication of why.
 for PEER_HOSTNAME in "${peer_names[@]}";
 do
-  while :
+  peer_ready=0
+  for attempt in $(seq 1 300); do
+    mapfile -t node_array < <(psql -A -t demo -h $PEER_HOSTNAME -c "SELECT node_name FROM spock.node;")
+    for element in "${node_array[@]}";
     do
-      mapfile -t node_array < <(psql -A -t demo -h $PEER_HOSTNAME -c "SELECT node_name FROM spock.node;")
-      for element in "${node_array[@]}";
-      do
-        if [[ "$element" == "$PEER_HOSTNAME" ]]; then
-            break 2
-        fi
-      done
-      sleep 1
-      echo "Waiting for $PEER_HOSTNAME..."
+      if [[ "$element" == "$PEER_HOSTNAME" ]]; then
+          peer_ready=1
+          break
+      fi
     done
+    [ "$peer_ready" = "1" ] && break
+    sleep 1
+    echo "Waiting for $PEER_HOSTNAME..."
+  done
+  if [ "$peer_ready" != "1" ]; then
+    echo "ERROR: peer $PEER_HOSTNAME did not register a spock node within 300s" >&2
+    exit 1
+  fi
 done
 
 # spock.sub_create connects to the provider synchronously, and the peer

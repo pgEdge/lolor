@@ -39,10 +39,6 @@
 #define GETNEWOID_LOG_THRESHOLD 1000000
 #define GETNEWOID_LOG_MAX_INTERVAL 128000000
 
-/* Parameters to determine new unique Oid. */
-#define MAX_NODEID_BITS 4
-#define MAX_OID_BITS 28
-
 /*
  * Create a large object having the given LO identifier.
  *
@@ -104,6 +100,7 @@ LOLOR_LargeObjectDrop(Oid loid)
 	ScanKeyData skey[1];
 	SysScanDesc scan;
 	HeapTuple	tuple;
+	Oid			descoid;
 
 	pg_lo_meta = table_open(get_LOLOR_LargeObjectMetadataRelationId(),
 							RowExclusiveLock);
@@ -154,6 +151,38 @@ LOLOR_LargeObjectDrop(Oid loid)
 	table_close(pg_largeobject, RowExclusiveLock);
 
 	table_close(pg_lo_meta, RowExclusiveLock);
+
+	/*
+	 * Drop any comment parked for this object while it lived in lolor
+	 * storage.  Leaving it behind would outlive the object: OIDs are only
+	 * checked against pg_largeobject_metadata when a new one is generated, so
+	 * a later object reusing this OID would inherit the stale comment on its
+	 * way back to native storage.
+	 *
+	 * The relation is absent when the loaded library is newer than the
+	 * installed extension version, which is the normal state between
+	 * installing the package and running ALTER EXTENSION UPDATE.
+	 */
+	descoid = get_LOLOR_LargeObjectDescriptionRelationIdIfExists();
+	if (OidIsValid(descoid))
+	{
+		Relation	pg_lo_desc = table_open(descoid, RowExclusiveLock);
+
+		ScanKeyInit(&skey[0],
+					1,			/* loid */
+					BTEqualStrategyNumber, F_OIDEQ,
+					ObjectIdGetDatum(loid));
+
+		scan = systable_beginscan(pg_lo_desc,
+								  get_LOLOR_LargeObjectDescriptionIndexId(),
+								  true, NULL, 1, skey);
+
+		while (HeapTupleIsValid(tuple = systable_getnext(scan)))
+			CatalogTupleDelete(pg_lo_desc, &tuple->t_self);
+
+		systable_endscan(scan);
+		table_close(pg_lo_desc, RowExclusiveLock);
+	}
 }
 
 /*
@@ -204,8 +233,9 @@ LOLOR_LargeObjectExists(Oid loid)
  * LOLOR_GetNewOidWithIndex
  *		Generate a new OID that is unique within the given relation.
  *
- * The lower 4 bits contains the lolor_node_id. The 2^28 bits consist of Oid
- * returned from GetNewObjectId and adjusted to remain within the range.
+ * The low LOLOR_NODEID_BITS contain lolor_node_id; the remaining
+ * LOLOR_OID_BITS hold an Oid returned from GetNewObjectId, adjusted to remain
+ * within range.
  *
  * See comments for GetNewOidWithIndex() for more details.
  */
@@ -236,11 +266,11 @@ LOLOR_GetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn)
 		 * Keep the range within 1..2^28. Restart from start on overflow and see
 		 * if any of the Oids are avaialbe.
 		 */
-		newOid = newOid % (1 << MAX_OID_BITS);
+		newOid = newOid % (1 << LOLOR_OID_BITS);
 		if (newOid == 0)
 			newOid = 1;
 
-		newOid = (newOid << MAX_NODEID_BITS) | lolor_node_id;
+		newOid = (newOid << LOLOR_NODEID_BITS) | lolor_node_id;
 
 		if (IsBootstrapProcessingMode())
 			return newOid;

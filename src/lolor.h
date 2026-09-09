@@ -20,6 +20,20 @@
 #define LOLOR_LARGEOBJECT_PKEY			"pg_largeobject_pkey"
 #define LOLOR_LARGEOBJECT_METADATA		"pg_largeobject_metadata"
 #define LOLOR_LARGEOBJECT_METADATA_PKEY	"pg_largeobject_metadata_pkey"
+#define LOLOR_LARGEOBJECT_DESCRIPTION	"pg_largeobject_description"
+#define LOLOR_LARGEOBJECT_DESCRIPTION_PKEY "pg_largeobject_description_pkey"
+
+/*
+ * Layout of a lolor-assigned large object OID: the low LOLOR_NODEID_BITS hold
+ * lolor.node and the remaining bits hold the generated OID, so that concurrent
+ * creation on different nodes cannot collide.  The GUC bound is derived from
+ * the encoding rather than written out separately: they must agree, and node
+ * id 16 does not fit in four bits.  Changing these changes the on-disk OID
+ * encoding and is not backward compatible.
+ */
+#define LOLOR_NODEID_BITS				4
+#define LOLOR_OID_BITS					28
+#define LOLOR_MAX_NODE_ID				((1 << LOLOR_NODEID_BITS) - 1)
 
 /* lolor.c */
 extern int32 lolor_node_id;
@@ -27,6 +41,9 @@ extern Oid get_LOLOR_LargeObjectRelationId(void);
 extern Oid	get_LOLOR_LargeObjectLOidPNIndexId(void);
 extern Oid	get_LOLOR_LargeObjectMetadataRelationId(void);
 extern Oid	get_LOLOR_LargeObjectMetadataOidIndexId(void);
+extern Oid	get_LOLOR_LargeObjectDescriptionRelationId(void);
+extern Oid	get_LOLOR_LargeObjectDescriptionIndexId(void);
+extern Oid	get_LOLOR_LargeObjectDescriptionRelationIdIfExists(void);
 
 /* lolor_largeobject.c */
 extern Oid	LOLOR_LargeObjectCreate(Oid loid);
@@ -86,5 +103,8 @@ extern Datum lolor_lo_from_bytea(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_get(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_get_fragment(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_put(PG_FUNCTION_ARGS);
+
+/* lolor_migrate.c */
+extern Datum lolor_migrate_storage(PG_FUNCTION_ARGS);
 
 #endif							/* LOLOR_LARGEOBJECT_H */

@@ -217,18 +217,26 @@ lolor_inv_create(Oid lobjId)
 	lobjId_new = LOLOR_LargeObjectCreate(lobjId);
 
 	/*
-	 * dependency on the owner of largeobject
+	 * No shared dependency is recorded for the owner, and no object access
+	 * hook is invoked.
 	 *
-	 * Note that LO dependencies are recorded using classId
-	 * LOLOR_LargeObjectRelationId for backwards-compatibility reasons.  Using
-	 * LOLOR_LargeObjectMetadataRelationId instead would simplify matters for the
-	 * backend, but it'd complicate pg_dump and possibly break other clients.
+	 * Core records pg_shdepend entries for large objects under classId
+	 * LargeObjectRelationId, which is a genuine catalog that the dependency
+	 * machinery knows how to describe and delete.  An object in lolor storage
+	 * is a row in an ordinary table, and there is no classId that describes
+	 * it: passing the OID of lolor.pg_largeobject produced pg_shdepend rows
+	 * that DROP ROLE could not interpret, failing with "unrecognized object
+	 * class" and leaving the role permanently undroppable.  The rows were
+	 * never removed either, because inv_drop() deletes with
+	 * PERFORM_DELETION_SKIP_ORIGINAL.  pg_shdepend is a shared catalog, so
+	 * the stored classId was a per-database relation OID with no meaning to
+	 * any other database.
+	 *
+	 * Not tracking the ownership is a real limitation -- DROP ROLE cannot
+	 * warn that a role still owns large objects held by lolor -- and it is
+	 * inherent in storing them outside the catalogs.  lolor.check_orphans()
+	 * reports objects whose owner no longer exists.
 	 */
-	recordDependencyOnOwner(get_LOLOR_LargeObjectRelationId(),
-							lobjId_new, GetUserId());
-
-	/* Post creation hook for new large object */
-	InvokeObjectPostCreateHook(get_LOLOR_LargeObjectRelationId(), lobjId_new, 0);
 
 	/*
 	 * Advance command counter to make new tuple visible to later operations.
@@ -347,16 +355,14 @@ lolor_inv_close(LargeObjectDesc *obj_desc)
 int
 lolor_inv_drop(Oid lobjId)
 {
-	ObjectAddress object;
-
 	/*
-	 * Delete any comments and dependencies on the large object
+	 * There are no comments, security labels or dependencies to remove: an
+	 * object in lolor storage is not a catalog object, so nothing can be
+	 * attached to it.  See the note in lolor_inv_create().  The previous
+	 * performDeletion() call here searched pg_depend under a classId that is
+	 * an ordinary relation OID and could never match anything.
 	 */
-	object.classId = get_LOLOR_LargeObjectRelationId();
-	object.objectId = lobjId;
-	object.objectSubId = 0;
-	performDeletion(&object, DROP_CASCADE, PERFORM_DELETION_SKIP_ORIGINAL);
-	LOLOR_LargeObjectDrop(object.objectId);
+	LOLOR_LargeObjectDrop(lobjId);
 
 	/*
 	 * Advance command counter so that tuple removal will be seen by later
