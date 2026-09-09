@@ -74,6 +74,11 @@ CREATE FUNCTION pg_catalog.lo_export(oid, text)
 	RETURNS integer
 	AS 'MODULE_PATHNAME', 'lolor_lo_export'
 	LANGUAGE C STRICT VOLATILE;
+-- lo_export writes a server-side file.  The original's restrictive ACL stayed
+-- behind on lo_export_orig when it was renamed, so the replacement must be
+-- locked down explicitly or any user could write arbitrary files as the
+-- server account.
+REVOKE ALL ON FUNCTION pg_catalog.lo_export(oid, text) FROM PUBLIC;
 
 -- lo_from_bytea
 ALTER FUNCTION pg_catalog.lo_from_bytea(oid, bytea)
@@ -106,6 +111,8 @@ CREATE FUNCTION pg_catalog.lo_import(text)
 	RETURNS oid
 	AS 'MODULE_PATHNAME', 'lolor_lo_import'
 	LANGUAGE C STRICT VOLATILE;
+-- Reads a server-side file; see the note on lo_export above.
+REVOKE ALL ON FUNCTION pg_catalog.lo_import(text) FROM PUBLIC;
 
 -- lo_import
 ALTER FUNCTION pg_catalog.lo_import(text, oid)
@@ -114,6 +121,8 @@ CREATE FUNCTION pg_catalog.lo_import(text, oid)
 	RETURNS oid
 	AS 'MODULE_PATHNAME', 'lolor_lo_import_with_oid'
 	LANGUAGE C STRICT VOLATILE;
+-- Reads a server-side file; see the note on lo_export above.
+REVOKE ALL ON FUNCTION pg_catalog.lo_import(text, oid) FROM PUBLIC;
 
 -- lo_lseek
 ALTER FUNCTION pg_catalog.lo_lseek(integer, integer, integer)
