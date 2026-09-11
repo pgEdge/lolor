@@ -32,6 +32,7 @@
 #include "catalog/pg_largeobject.h"
 #include "catalog/pg_largeobject_metadata.h"
 #include "catalog/pg_shdepend.h"
+#include "catalog/pg_namespace.h"
 #include "commands/comment.h"
 #include "commands/event_trigger.h"
 #include "miscadmin.h"
@@ -815,35 +816,25 @@ lolor_ProcessUtility(PlannedStmt *pstmt,
 {
 	Node	   *parsetree = pstmt->utilityStmt;
 
-	if (lolor_is_installed() && lolor_is_enabled())
+	if ((IsA(parsetree, AlterOwnerStmt) && ((AlterOwnerStmt *) parsetree)->objectType == OBJECT_LARGEOBJECT) ||
+		(IsA(parsetree, CommentStmt) && ((CommentStmt *) parsetree)->objtype == OBJECT_LARGEOBJECT) ||
+		(IsA(parsetree, GrantStmt) && ((GrantStmt *) parsetree)->objtype == OBJECT_LARGEOBJECT))
 	{
-		if (IsA(parsetree, AlterOwnerStmt))
+		if (lolor_is_installed() && lolor_is_enabled())
 		{
-			AlterOwnerStmt *stmt = (AlterOwnerStmt *) parsetree;
-
-			if (stmt->objectType == OBJECT_LARGEOBJECT)
+			if (IsA(parsetree, AlterOwnerStmt))
 			{
-				lolor_alter_large_object_owner(stmt, qc);
+				lolor_alter_large_object_owner((AlterOwnerStmt *) parsetree, qc);
 				return;
 			}
-		}
-		else if (IsA(parsetree, CommentStmt))
-		{
-			CommentStmt *stmt = (CommentStmt *) parsetree;
-
-			if (stmt->objtype == OBJECT_LARGEOBJECT)
+			else if (IsA(parsetree, CommentStmt))
 			{
-				lolor_comment_large_object(stmt, qc);
+				lolor_comment_large_object((CommentStmt *) parsetree, qc);
 				return;
 			}
-		}
-		else if (IsA(parsetree, GrantStmt))
-		{
-			GrantStmt  *stmt = (GrantStmt *) parsetree;
-
-			if (stmt->objtype == OBJECT_LARGEOBJECT)
+			else if (IsA(parsetree, GrantStmt))
 			{
-				lolor_grant_large_object(stmt, qc);
+				lolor_grant_large_object((GrantStmt *) parsetree, qc);
 				return;
 			}
 		}
@@ -858,3 +849,4 @@ lolor_ProcessUtility(PlannedStmt *pstmt,
 								context, params, queryEnv,
 								dest, qc);
 }
+
