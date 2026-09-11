@@ -1,3 +1,10 @@
 *.so
 *.bc
 *.o
+results/
+tmp_check/
+log/
+regression.diffs
+regression.out
+delete_old_cluster.sh
+

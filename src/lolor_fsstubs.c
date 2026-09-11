@@ -94,7 +94,6 @@ PG_FUNCTION_INFO_V1(lolor_lo_put);
 
 static int	lo_read(int fd, char *buf, int len);
 static int	lo_write(int fd, const char *buf, int len);
-static bool lolor_object_ownercheck(Oid classid, Oid objectid, Oid roleid);
 static AclMode lolor_largeobject_aclmask_snapshot(Oid lobj_oid, Oid roleid,
 					AclMode mask, AclMaskHow how, Snapshot snapshot);
 
@@ -356,36 +355,67 @@ lolor_lo_unlink(PG_FUNCTION_ARGS)
 	PreventCommandIfReadOnly("lo_unlink()");
 
 	/*
-	 * Must be owner of the large object.  It would be cleaner to check this
-	 * in lolor_inv_drop(), but we want to throw the error before not after closing
-	 * relevant FDs.
+	 * Check whether the object exists in lolor or in native storage.
 	 */
-	if (!lo_compat_privileges &&
-		!lolor_object_ownercheck(get_LOLOR_LargeObjectMetadataRelationId(),
-								 lobjId, GetUserId()))
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("must be owner of large object %u", lobjId)));
-
-	/*
-	 * If there are any open LO FDs referencing that ID, close 'em.
-	 */
-	if (fscxt != NULL)
+	if (LOLOR_LargeObjectExists(lobjId))
 	{
-		int			i;
+		if (!lo_compat_privileges &&
+			!lolor_object_ownercheck(get_LOLOR_LargeObjectMetadataRelationId(),
+									 lobjId, GetUserId()))
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					 errmsg("must be owner of large object %u", lobjId)));
 
-		for (i = 0; i < cookies_size; i++)
+		/*
+		 * If there are any open LO FDs referencing that ID, close 'em.
+		 */
+		if (fscxt != NULL)
 		{
-			if (cookies[i] != NULL && cookies[i]->id == lobjId)
-				closeLOfd(i);
-		}
-	}
+			int			i;
 
-	/*
-	 * lolor_inv_drop does not create a need for end-of-transaction cleanup and
-	 * hence we don't need to set lo_cleanup_needed.
-	 */
-	PG_RETURN_INT32(lolor_inv_drop(lobjId));
+			for (i = 0; i < cookies_size; i++)
+			{
+				if (cookies[i] != NULL && cookies[i]->id == lobjId)
+					closeLOfd(i);
+			}
+		}
+
+		/*
+		 * lolor_inv_drop does not create a need for end-of-transaction cleanup and
+		 * hence we don't need to set lo_cleanup_needed.
+		 */
+		PG_RETURN_INT32(lolor_inv_drop(lobjId));
+	}
+	else if (oldlo_exists(lobjId, NULL))
+	{
+		if (!lo_compat_privileges &&
+			!oldlo_ownercheck(lobjId, GetUserId()))
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					 errmsg("must be owner of large object %u", lobjId)));
+
+		/*
+		 * If there are any open LO FDs referencing that ID, close 'em.
+		 */
+		if (fscxt != NULL)
+		{
+			int			i;
+
+			for (i = 0; i < cookies_size; i++)
+			{
+				if (cookies[i] != NULL && cookies[i]->id == lobjId)
+					closeLOfd(i);
+			}
+		}
+
+		PG_RETURN_INT32(oldlo_drop(lobjId));
+	}
+	else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("large object %u does not exist", lobjId)));
+	}
 }
 
 /*****************************************************************************
@@ -672,6 +702,7 @@ AtEOXact_LOLOR_LargeObject(bool isCommit)
 
 	/* Give inv_api.c a chance to clean up, too */
 	lolor_close_lo_relation(isCommit);
+	oldlo_close_lo_relation(isCommit);
 
 	lo_cleanup_needed = false;
 }
@@ -918,7 +949,7 @@ lolor_lo_put(PG_FUNCTION_ARGS)
 	PG_RETURN_VOID();
 }
 
-static bool
+bool
 lolor_object_ownercheck(Oid classid, Oid objectid, Oid roleid)
 {
 	Oid			ownerId;
