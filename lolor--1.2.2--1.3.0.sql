@@ -217,6 +217,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql VOLATILE;
 
+REVOKE EXECUTE ON FUNCTION lolor.migrate_from_native() FROM PUBLIC;
+
 /*
  * lolor.migrate_to_native()
  *
@@ -394,6 +396,8 @@ BEGIN
   RETURN lo_count;
 END;
 $$ LANGUAGE plpgsql VOLATILE;
+
+REVOKE EXECUTE ON FUNCTION lolor.migrate_to_native() FROM PUBLIC;
 
 /*
  * lolor.cleanup_dependencies()
