@@ -48,6 +48,114 @@ END;
 $$;
 
 /*
+ * Large objects in lolor storage that refer to a role which no longer exists,
+ * as owner, grantee or grantor.
+ *
+ * Objects in lolor storage are rows in ordinary tables, so they cannot
+ * participate in pg_shdepend: DROP ROLE will not notice them the way it
+ * notices native large objects.  That is inherent to storing them outside the
+ * catalogs; this function makes the consequence findable, and fix_orphans()
+ * repairs it.  Joins pg_roles rather than pg_authid so that a grantee of
+ * EXECUTE can actually run it.
+ */
+CREATE FUNCTION lolor.check_orphans()
+RETURNS TABLE (loid oid, role_oid oid, role_kind text) AS $$
+  SELECT m.oid, m.lomowner, 'owner'
+  FROM lolor.pg_largeobject_metadata m
+  WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = m.lomowner)
+  UNION
+  SELECT m.oid, a.grantee, 'grantee'
+  FROM lolor.pg_largeobject_metadata m, pg_catalog.aclexplode(m.lomacl) a
+  WHERE a.grantee <> 0
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantee)
+  UNION
+  SELECT m.oid, a.grantor, 'grantor'
+  FROM lolor.pg_largeobject_metadata m, pg_catalog.aclexplode(m.lomacl) a
+  WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantor)
+  ORDER BY 1, 3, 2
+$$ LANGUAGE sql STABLE;
+
+REVOKE ALL ON FUNCTION lolor.check_orphans() FROM PUBLIC;
+
+/*
+ * Repair what check_orphans() reports.  Objects whose owner is gone go to
+ * new_owner, and the ACL is rebuilt the way core's aclnewowner() does it: the
+ * old owner is replaced by new_owner wherever it appears as grantee or
+ * grantor, entries that then coincide are merged, and only entries that still
+ * name a missing role are dropped.  Grants the old owner made therefore
+ * survive, as they do under REASSIGN OWNED.  Returns the number of objects
+ * changed.
+ *
+ * One UPDATE is essential: the ACL rewrite has to see the old owner, and a
+ * separate UPDATE of lomowner would already have lost it.
+ */
+CREATE FUNCTION lolor.fix_orphans(new_owner regrole)
+RETURNS bigint AS $$
+DECLARE
+  fixed bigint;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper) THEN
+    RAISE EXCEPTION 'must be superuser to repair orphaned large objects';
+  END IF;
+
+  WITH o AS (
+    SELECT m.oid, m.lomowner AS old_owner, m.lomacl,
+           NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = m.lomowner) AS owner_dead
+    FROM lolor.pg_largeobject_metadata m)
+  UPDATE lolor.pg_largeobject_metadata m
+     SET lomowner = CASE WHEN o.owner_dead THEN new_owner::oid ELSE m.lomowner END,
+         -- aclexplode() yields one row per privilege.  Substitute the owner,
+         -- regroup so coinciding entries merge, then rebuild with
+         -- makeaclitem().  An empty result is NULL, meaning default
+         -- privileges.
+         lomacl = (
+           SELECT array_agg(pg_catalog.makeaclitem(s.grantee, s.grantor, s.privs, s.is_grantable)
+                            ORDER BY s.grantee, s.grantor, s.is_grantable)
+           FROM (SELECT CASE WHEN o.owner_dead AND a.grantee = o.old_owner
+                             THEN new_owner::oid ELSE a.grantee END AS grantee,
+                        CASE WHEN o.owner_dead AND a.grantor = o.old_owner
+                             THEN new_owner::oid ELSE a.grantor END AS grantor,
+                        a.is_grantable,
+                        string_agg(DISTINCT a.privilege_type, ',') AS privs
+                 FROM pg_catalog.aclexplode(o.lomacl) a
+                 GROUP BY 1, 2, 3) s
+           WHERE (s.grantee = 0
+                  OR EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = s.grantee))
+             AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = s.grantor))
+    FROM o
+   WHERE m.oid = o.oid
+     AND (o.owner_dead
+          OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(o.lomacl) a
+                     WHERE (a.grantee <> 0
+                            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantee))
+                        OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantor)));
+  GET DIAGNOSTICS fixed = ROW_COUNT;
+
+  RETURN fixed;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
+
+REVOKE ALL ON FUNCTION lolor.fix_orphans(regrole) FROM PUBLIC;
+
+/*
+ * Remove the bogus pg_shdepend rows left by earlier versions.
+ *
+ * Through 1.2.2, creating a large object recorded a pg_shdepend row whose
+ * classId was the OID of lolor.pg_largeobject -- an ordinary table, not a
+ * catalog the dependency machinery can describe.  DROP ROLE on any role that
+ * had created one failed with "unrecognized object class", and the rows were
+ * never removed.
+ *
+ * pg_shdepend is shared across the cluster, so restrict the delete to this
+ * database: the same classId in another database is an unrelated relation.
+ */
+DELETE FROM pg_catalog.pg_shdepend
+WHERE dbid = (SELECT oid FROM pg_catalog.pg_database
+               WHERE datname = current_database())
+  AND classid IN ('lolor.pg_largeobject'::regclass,
+                  'lolor.pg_largeobject_metadata'::regclass);
+
+/*
  * lolor.migrate_from_native()
  *
  * Migrate all native PostgreSQL large objects from pg_catalog.pg_largeobject
