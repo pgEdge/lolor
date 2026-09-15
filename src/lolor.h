@@ -21,6 +21,17 @@
 #define LOLOR_LARGEOBJECT_METADATA		"pg_largeobject_metadata"
 #define LOLOR_LARGEOBJECT_METADATA_PKEY	"pg_largeobject_metadata_pkey"
 
+/*
+ * Layout of a lolor-assigned large object OID: the low LOLOR_NODEID_BITS hold
+ * lolor.node and the rest hold the generated OID, so that concurrent creation
+ * on different nodes cannot collide.  The GUC bound is derived from the
+ * encoding rather than written out separately, since the two must agree.
+ * Changing these changes the on-disk OID encoding.
+ */
+#define LOLOR_NODEID_BITS				4
+#define LOLOR_OID_BITS					28
+#define LOLOR_MAX_NODE_ID				((1 << LOLOR_NODEID_BITS) - 1)
+
 /* lolor.c */
 extern int32 lolor_node_id;
 extern Oid get_LOLOR_LargeObjectRelationId(void);

@@ -309,6 +309,15 @@ ORDER BY 1;
 DROP EXTENSION lolor;
 
 --
+-- lolor.node is bounded by the OID encoding, not by an independently written
+-- constant: the low LOLOR_NODEID_BITS of a generated OID carry the node id, so
+-- 16 does not fit and was previously accepted while encoding as node 0.
+--
+SET lolor.node = 16;
+SET lolor.node = 15;
+SET lolor.node = 1;
+
+--
 -- 64-bit interface and page-boundary I/O.  lo_put(), lo_tell64() and
 -- lo_truncate64() had no coverage.
 --
