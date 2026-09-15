@@ -25,3 +25,9 @@ Then, use psql to enable `lolor`:
 ```
 db1_18=# SELECT lolor.enable();
 ```
+
+Reconnect any client sessions afterwards. `lolor.enable()` and
+`lolor.disable()` change which function OID owns each `pg_catalog.lo_*` name,
+and libpq resolves those OIDs once per connection and caches them for the life
+of the connection. A session that used a large object before the switch would
+otherwise keep calling the previous implementation.
