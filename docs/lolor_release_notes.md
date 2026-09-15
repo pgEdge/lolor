@@ -1,5 +1,10 @@
 # lolor Release Notes
 
+## lolor 1.4.0
+
+* **Security fix: `lo_import()` and `lo_export()` were executable by any database user.** These functions read and write files on the server as the operating system account PostgreSQL runs under, and core revokes `EXECUTE` on them from `PUBLIC`. lolor replaces them by renaming the originals to `*_orig`; an ACL belongs to a function rather than to a name, so the restriction stayed behind on the parked original while each replacement was created with the default of `EXECUTE TO PUBLIC`. Any user could therefore read an arbitrary server file with `lo_import()` or overwrite one with `lo_export()`. The replacements are now locked down at install time, and the upgrade to 1.4.0 revokes the privilege on existing installations in either the enabled or the disabled state. All versions from 1.0 through 1.3.0 are affected.
+* The extension is no longer marked `trusted`. Installing lolor renames functions in `pg_catalog` for the whole database, which is not an operation a non-superuser should be able to perform.
+
 ## lolor 1.3.0
 
 * Add bidirectional large object migration between native PostgreSQL and lolor storage:
