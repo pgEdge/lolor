@@ -3,5 +3,7 @@ comment = 'Large Objects support for logical replication'
 default_version = '1.3.0'
 module_pathname = '$libdir/lolor'
 relocatable = false
-trusted = true
+# Not trusted: installing lolor renames functions in pg_catalog for the
+# whole database, which a non-superuser should not be able to do.
+trusted = false
 schema = lolor
