@@ -258,6 +258,9 @@ LOLOR_GetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn)
 
 		systable_endscan(scan);
 
+		if (!collides && oldlo_exists(newOid, SnapshotAny))
+			collides = true;
+
 		/*
 		 * Log that we iterate more than GETNEWOID_LOG_THRESHOLD but have not
 		 * yet found OID unused in the relation. Then repeat logging with

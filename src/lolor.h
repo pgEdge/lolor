@@ -47,6 +47,22 @@ extern int	lolor_inv_read(LargeObjectDesc *obj_desc, char *buf, int nbytes);
 extern int	lolor_inv_write(LargeObjectDesc *obj_desc, const char *buf, int nbytes);
 extern void lolor_inv_truncate(LargeObjectDesc *obj_desc, int64 len);
 
+/* flag for LargeObjectDesc: object is stored in native pg_catalog */
+#define IFS_NATIVE		(1 << 2)
+
+/* oldloutils.c */
+extern void oldlo_open_lo_relation(void);
+extern void oldlo_close_lo_relation(bool isCommit);
+extern bool oldlo_exists(Oid loid, Snapshot snapshot);
+extern AclResult oldlo_aclcheck(Oid loid, Oid roleid, AclMode mode, Snapshot snapshot);
+extern bool oldlo_ownercheck(Oid loid, Oid roleid);
+extern int	oldlo_read(LargeObjectDesc *obj_desc, char *buf, int nbytes);
+extern int64 oldlo_seek(LargeObjectDesc *obj_desc, int64 offset, int whence);
+extern int64 oldlo_tell(LargeObjectDesc *obj_desc);
+extern uint64 oldlo_getsize(LargeObjectDesc *obj_desc);
+extern int	oldlo_drop(Oid lobjId);
+extern bool oldlo_migrate_one(Oid lobjId);
+
 /* lolor_fsstubs.c */
 
 #ifndef repalloc0_array
@@ -86,5 +102,17 @@ extern Datum lolor_lo_from_bytea(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_get(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_get_fragment(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_put(PG_FUNCTION_ARGS);
+extern bool lolor_object_ownercheck(Oid classid, Oid objectid, Oid roleid);
+
+/* lolor_utility.c */
+extern void lolor_utility_init(void);
+extern void lolor_utility_fini(void);
+extern void lolor_record_role_dependency(Oid roleid);
+extern Datum lolor_cleanup_dependencies(PG_FUNCTION_ARGS);
+
+/* oldloutils.c */
+extern Datum lolor_migrate(PG_FUNCTION_ARGS);
+extern Datum lolor_vacuum_native_storage(PG_FUNCTION_ARGS);
 
 #endif							/* LOLOR_LARGEOBJECT_H */
+
