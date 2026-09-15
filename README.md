@@ -111,6 +111,15 @@ doing anything (0 is reserved for "nothing to migrate"), while
 migrating; merely disabling a subscription is not sufficient, since its slot
 retains the changes and delivers them when replication resumes.
 
+### Security
+
+`lo_import()` and `lo_export()` read and write files on the server host. As in
+core PostgreSQL, `EXECUTE` on them is revoked from `PUBLIC`; grant it
+deliberately if a non-superuser needs server-side file access.
+
+Versions 1.0 through 1.2.2 left these two functions executable by every
+database user. Upgrading to 1.3.0 revokes the privilege; see the release notes.
+
 ### Limitations
 
 - Native large object functionality cannot be used while you are using the lolor extension.
