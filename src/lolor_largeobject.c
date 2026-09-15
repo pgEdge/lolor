@@ -100,6 +100,7 @@ LOLOR_LargeObjectDrop(Oid loid)
 	ScanKeyData skey[1];
 	SysScanDesc scan;
 	HeapTuple	tuple;
+	Oid			descoid;
 
 	pg_lo_meta = table_open(get_LOLOR_LargeObjectMetadataRelationId(),
 							RowExclusiveLock);
@@ -150,6 +151,38 @@ LOLOR_LargeObjectDrop(Oid loid)
 	table_close(pg_largeobject, RowExclusiveLock);
 
 	table_close(pg_lo_meta, RowExclusiveLock);
+
+	/*
+	 * Drop any comment parked for this object while it lived in lolor storage.
+	 * Leaving it behind would outlive the object: OIDs are only checked
+	 * against pg_largeobject_metadata when a new one is generated, so a later
+	 * object reusing this OID would inherit the stale comment on its way back
+	 * to native storage.
+	 *
+	 * The relation is absent when the loaded library is newer than the
+	 * installed extension version, which is the normal state between
+	 * installing the package and running ALTER EXTENSION UPDATE.
+	 */
+	descoid = get_LOLOR_LargeObjectDescriptionRelationIdIfExists();
+	if (OidIsValid(descoid))
+	{
+		Relation	pg_lo_desc = table_open(descoid, RowExclusiveLock);
+
+		ScanKeyInit(&skey[0],
+					1,			/* loid */
+					BTEqualStrategyNumber, F_OIDEQ,
+					ObjectIdGetDatum(loid));
+
+		scan = systable_beginscan(pg_lo_desc,
+								  get_LOLOR_LargeObjectDescriptionIndexId(),
+								  true, NULL, 1, skey);
+
+		while (HeapTupleIsValid(tuple = systable_getnext(scan)))
+			CatalogTupleDelete(pg_lo_desc, &tuple->t_self);
+
+		systable_endscan(scan);
+		table_close(pg_lo_desc, RowExclusiveLock);
+	}
 }
 
 /*
