@@ -49,22 +49,44 @@ static Oid	LOLOR_LargeObjectRelationId = InvalidOid;
 static Oid	LOLOR_LargeObjectLOidPNIndexId = InvalidOid;
 static Oid	LOLOR_LargeObjectMetadataRelationId = InvalidOid;
 static Oid	LOLOR_LargeObjectMetadataOidIndexId = InvalidOid;
+static Oid	LOLOR_LargeObjectDescriptionRelationId = InvalidOid;
+static Oid	LOLOR_LargeObjectDescriptionIndexId = InvalidOid;
 
 PG_FUNCTION_INFO_V1(lolor_on_drop_extension);
 
 static Oid
-get_lobj_table_oid(const char *table)
+get_lobj_table_oid_extended(const char *table, bool missing_ok)
 {
 	Oid			reloid;
 	Oid			nspoid;
 
 	nspoid = get_namespace_oid(EXTENSION_NAME, false);
 	reloid = get_relname_relid(table, nspoid);
-	if (reloid == InvalidOid)
+	if (reloid == InvalidOid && !missing_ok)
 		elog(ERROR, "cache lookup failed for relation %s.%s",
 			 EXTENSION_NAME, table);
 
 	return reloid;
+}
+
+static Oid
+get_lobj_table_oid(const char *table)
+{
+	return get_lobj_table_oid_extended(table, false);
+}
+
+/*
+ * Same, but returns InvalidOid when the relation is absent.
+ *
+ * The shared library is replaced before ALTER EXTENSION UPDATE runs, so a
+ * backend can execute newer code against an older schema in which
+ * lolor.pg_largeobject_description does not exist yet.  Paths reached during
+ * ordinary large object activity have to tolerate that.
+ */
+Oid
+get_LOLOR_LargeObjectDescriptionRelationIdIfExists(void)
+{
+	return get_lobj_table_oid_extended(LOLOR_LARGEOBJECT_DESCRIPTION, true);
 }
 
 Oid
@@ -101,6 +123,31 @@ get_LOLOR_LargeObjectMetadataOidIndexId()
 		LOLOR_LargeObjectMetadataOidIndexId = get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA_PKEY);
 
 	return LOLOR_LargeObjectMetadataOidIndexId;
+}
+
+/*
+ * lolor.pg_largeobject_description parks COMMENT ON LARGE OBJECT text while an
+ * object lives in lolor storage, where there is no catalog entry for a comment
+ * to hang off.  See lolor_migrate.c.
+ */
+Oid
+get_LOLOR_LargeObjectDescriptionRelationId()
+{
+	if (!OidIsValid(LOLOR_LargeObjectDescriptionRelationId))
+		LOLOR_LargeObjectDescriptionRelationId =
+			get_lobj_table_oid(LOLOR_LARGEOBJECT_DESCRIPTION);
+
+	return LOLOR_LargeObjectDescriptionRelationId;
+}
+
+Oid
+get_LOLOR_LargeObjectDescriptionIndexId()
+{
+	if (!OidIsValid(LOLOR_LargeObjectDescriptionIndexId))
+		LOLOR_LargeObjectDescriptionIndexId =
+			get_lobj_table_oid(LOLOR_LARGEOBJECT_DESCRIPTION_PKEY);
+
+	return LOLOR_LargeObjectDescriptionIndexId;
 }
 
 static void
@@ -149,6 +196,8 @@ relcache_invalidate_callback(Datum arg, Oid reloid)
 	LOLOR_LargeObjectLOidPNIndexId = InvalidOid;
 	LOLOR_LargeObjectMetadataRelationId = InvalidOid;
 	LOLOR_LargeObjectMetadataOidIndexId = InvalidOid;
+	LOLOR_LargeObjectDescriptionRelationId = InvalidOid;
+	LOLOR_LargeObjectDescriptionIndexId = InvalidOid;
 }
 
 /*
