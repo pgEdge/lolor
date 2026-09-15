@@ -269,7 +269,8 @@ CREATE EXTENSION lolor;
 SELECT lo_from_bytea(0, 'Drop conflict test') AS drop_conflict_oid \gset
 -- Create a native LO with the same OID to force conflict at DROP time
 SELECT lolor.disable();
-SELECT lo_create(:'drop_conflict_oid');
+-- Print a stable boolean rather than the generated OID, which varies per run
+SELECT lo_create(:'drop_conflict_oid') = :'drop_conflict_oid'::oid AS native_oid_honored;
 SELECT lolor.enable();
 -- DROP EXTENSION should ERROR to prevent data loss
 DROP EXTENSION lolor;
@@ -282,4 +283,121 @@ SELECT lolor.disable();
 SELECT lo_unlink(:'drop_conflict_oid'::oid);
 SELECT lolor.enable();
 -- Now DROP should succeed
+DROP EXTENSION lolor;
+
+--
+-- 64-bit interface and page-boundary I/O.  lo_put(), lo_tell64() and
+-- lo_truncate64() had no coverage.
+--
+CREATE EXTENSION lolor;
+SELECT current_setting('block_size')::int / 4 AS loblksize \gset
+
+-- Write straddling a page boundary, then read the fragment back.
+SELECT lo_create(0) AS span_oid \gset
+SELECT lo_put(:span_oid, (:loblksize - 4)::bigint, '\x4142434445464748'::bytea);
+SELECT length(lo_get(:span_oid)) = :loblksize + 4 AS spans_two_pages;
+SELECT count(*) = 2 AS two_data_pages FROM lolor.pg_largeobject WHERE loid = :span_oid;
+SELECT encode(lo_get(:span_oid, (:loblksize - 4)::bigint, 8), 'hex') AS across_boundary;
+
+-- lo_truncate64() extending past the end leaves a hole rather than pages.
+BEGIN;
+SELECT lo_open(:span_oid, x'60000'::int) AS fd \gset
+SELECT lo_truncate64(:fd, (:loblksize * 4)::bigint);
+SELECT lo_lseek64(:fd, 0, 2) = (:loblksize * 4)::bigint AS seek_end_matches;
+SELECT lo_tell64(:fd) = (:loblksize * 4)::bigint AS tell64_matches;
+SELECT lo_close(:fd);
+END;
+SELECT length(lo_get(:span_oid)) = :loblksize * 4 AS truncate64_extended;
+SELECT count(*) < 4 AS hole_not_materialised
+  FROM lolor.pg_largeobject WHERE loid = :span_oid;
+
+-- Truncating back down releases the pages beyond the new length.
+BEGIN;
+SELECT lo_open(:span_oid, x'60000'::int) AS fd \gset
+SELECT lo_truncate64(:fd, 10);
+SELECT lo_close(:fd);
+END;
+SELECT length(lo_get(:span_oid)) AS len_after_shrink;
+SELECT lo_unlink(:span_oid);
+
+--
+-- Subtransaction cleanup.  A descriptor opened inside an aborted
+-- subtransaction must be closed by the rollback, one opened in the enclosing
+-- transaction must survive it, and data written in the aborted
+-- subtransaction must not persist.
+--
+BEGIN;
+SELECT lo_from_bytea(0, 'outer') AS sub_oid \gset
+SELECT lo_open(:sub_oid, x'60000'::int) AS outer_fd \gset
+SAVEPOINT s1;
+SELECT lo_open(:sub_oid, x'60000'::int) AS inner_fd \gset
+SELECT lo_put(:sub_oid, 0, 'INNER');
+ROLLBACK TO s1;
+SAVEPOINT s2;
+SELECT lo_tell(:inner_fd);
+ROLLBACK TO s2;
+SELECT lo_tell(:outer_fd) AS outer_descriptor_survives;
+SELECT lo_close(:outer_fd);
+COMMIT;
+SELECT convert_from(lo_get(:sub_oid), 'UTF8') AS subxact_write_rolled_back;
+SELECT lo_unlink(:sub_oid);
+
+--
+-- A rolled back transaction must leave no trace in lolor storage.
+--
+SELECT count(*) AS rows_before FROM lolor.pg_largeobject_metadata;
+BEGIN;
+SELECT lo_from_bytea(0, 'discarded') IS NOT NULL AS created_in_aborted_xact;
+ROLLBACK;
+SELECT count(*) AS rows_after FROM lolor.pg_largeobject_metadata;
+
+--
+-- Seek variants and read/write edge cases.
+--
+SELECT lo_from_bytea(0, '0123456789abcdef') AS seek_oid \gset
+BEGIN;
+SELECT lo_open(:seek_oid, x'60000'::int) AS fd \gset
+SELECT lo_lseek(:fd, 4, 0) AS seek_set;
+SELECT lo_lseek(:fd, 2, 1) AS seek_cur;
+SELECT lo_lseek(:fd, -3, 2) AS seek_end;
+SELECT lo_tell(:fd) AS tell_after_seeks;
+SELECT convert_from(loread(:fd, 3), 'UTF8') AS read_tail;
+-- A read at end of object returns nothing rather than failing.
+SELECT length(loread(:fd, 100)) AS read_past_eof;
+-- Zero-length read and empty write are both no-ops.
+SELECT lo_lseek(:fd, 0, 0);
+SELECT length(loread(:fd, 0)) AS zero_length_read;
+SELECT lowrite(:fd, '') AS empty_write;
+SELECT lo_close(:fd);
+END;
+SELECT length(lo_get(:seek_oid)) AS unchanged_length;
+-- lo_get with a fragment length beyond the end is clamped, not an error.
+SELECT convert_from(lo_get(:seek_oid, 10, 1000), 'UTF8') AS clamped_fragment;
+SELECT lo_unlink(:seek_oid);
+
+--
+-- Reading a multi-page object back in chunks that do not align with the page
+-- size exercises the page-assembly path in lolor_inv_read().
+--
+SELECT lo_from_bytea(0, repeat('abcdefgh', (:loblksize * 3 / 8))::bytea) AS multi_oid \gset
+SELECT length(lo_get(:multi_oid)) = :loblksize * 3 AS three_pages_written;
+SELECT count(*) AS page_rows FROM lolor.pg_largeobject WHERE loid = :multi_oid;
+BEGIN;
+SELECT lo_open(:multi_oid, 262144) AS fd \gset
+SELECT length(loread(:fd, 1000)) AS chunk1;
+SELECT length(loread(:fd, 5000)) AS chunk2;
+SELECT length(loread(:fd, 100000)) AS chunk_rest;
+SELECT lo_close(:fd);
+END;
+SELECT md5(lo_get(:multi_oid)) = md5(repeat('abcdefgh', (:loblksize * 3 / 8))::bytea)
+  AS content_round_trips;
+SELECT lo_unlink(:multi_oid);
+
+--
+-- Error paths.
+--
+SELECT lo_get(0);
+BEGIN;
+SELECT lo_open(0, 262144);
+ROLLBACK;
 DROP EXTENSION lolor;
