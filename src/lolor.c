@@ -156,7 +156,7 @@ _PG_init(void)
 							&lolor_node_id,
 							0,
 							0,
-							16,
+							LOLOR_MAX_NODE_ID,
 							PGC_SUSET,
 							0,
 							NULL, NULL, NULL);
