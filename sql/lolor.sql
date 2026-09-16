@@ -500,3 +500,55 @@ BEGIN;
 SELECT lo_open(0, 262144);
 ROLLBACK;
 DROP EXTENSION lolor;
+
+--
+-- An unprivileged user must not be able to wedge lolor by squatting the names
+-- the state probes look for.  Before 1.4.0 this made is_enabled() raise
+-- "inconsistent state", which also blocked DROP EXTENSION.
+--
+CREATE EXTENSION lolor;
+CREATE ROLE lolor_squatter;
+GRANT CREATE ON SCHEMA public TO lolor_squatter;
+SET ROLE lolor_squatter;
+CREATE FUNCTION public.lolor_lo_open(oid, int4) RETURNS int4
+  AS 'SELECT 1' LANGUAGE sql;
+CREATE FUNCTION public.lo_close_orig(int4) RETURNS int4
+  AS 'SELECT 1' LANGUAGE sql;
+RESET ROLE;
+SELECT lolor.is_enabled() AS unaffected_by_squatting;
+DROP FUNCTION public.lolor_lo_open(oid, int4);
+DROP FUNCTION public.lo_close_orig(int4);
+REVOKE CREATE ON SCHEMA public FROM lolor_squatter;
+DROP ROLE lolor_squatter;
+DROP EXTENSION lolor;
+
+--
+-- DROP SCHEMA lolor CASCADE reaches the extension by dependency cascade rather
+-- than as DROP EXTENSION.  The cleanup trigger must still run, or the objects
+-- are destroyed and pg_catalog is left without a working lo_open().
+--
+CREATE EXTENSION lolor;
+SELECT lo_from_bytea(0, 'rescued from drop schema') AS rescued_oid \gset
+DROP SCHEMA lolor CASCADE;
+SELECT count(*) AS ext_left FROM pg_extension WHERE extname = 'lolor';
+SELECT to_regprocedure('pg_catalog.lo_open(oid,int4)') IS NOT NULL AS lo_open_restored;
+SELECT to_regprocedure('pg_catalog.lo_open_orig(oid,int4)') IS NULL AS no_orig_left;
+SELECT convert_from(lo_get(:rescued_oid), 'UTF8') AS rescued_content;
+SELECT lo_unlink(:rescued_oid);
+
+--
+-- DROP SCHEMA without CASCADE is RESTRICT and cannot remove a schema that
+-- still holds the extension's tables.  The cleanup must not run for a command
+-- that is going to be rejected, or it would migrate every large object and
+-- take the storage locks only to have the work rolled back.
+--
+CREATE EXTENSION lolor;
+SELECT lo_from_bytea(0, 'still here afterwards') AS kept_oid \gset
+DROP SCHEMA lolor;
+SELECT count(*) AS extension_still_installed
+  FROM pg_extension WHERE extname = 'lolor';
+SELECT convert_from(lo_get(:kept_oid), 'UTF8') AS object_untouched;
+SELECT count(*) AS still_in_lolor_storage
+  FROM lolor.pg_largeobject_metadata WHERE oid = :kept_oid;
+SELECT lo_unlink(:kept_oid);
+DROP EXTENSION lolor;
