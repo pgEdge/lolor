@@ -106,6 +106,7 @@ SELECT lo_open(:loid, 262144) AS fd \gset
 SELECT convert_from(loread(:fd, 1024), 'UTF8');
 END;
 ALTER EXTENSION lolor UPDATE TO '1.3.0';
+ALTER EXTENSION lolor UPDATE TO '1.4.0';
 -- Verify migration functions are available after upgrade
 SELECT lolor.migrate_to_native(); -- One LO object has been created before LOLOR
 SELECT lolor.migrate_from_native(); -- two objects
@@ -283,6 +284,29 @@ SELECT lolor.disable();
 SELECT lo_unlink(:'drop_conflict_oid'::oid);
 SELECT lolor.enable();
 -- Now DROP should succeed
+DROP EXTENSION lolor;
+
+--
+-- lo_import() and lo_export() read and write files on the server, so core
+-- revokes EXECUTE on them from PUBLIC.  lolor replaces them by renaming the
+-- originals out of the way, and an ACL belongs to a function rather than to a
+-- name: the restriction stays on the parked original, and the replacement is
+-- created with the default unless locked down explicitly.  Before 1.4.0 that
+-- let any database user read or overwrite server files.
+--
+CREATE EXTENSION lolor;
+SELECT r.proname || '(' || pg_get_function_arguments(r.oid) || ')' AS func,
+       EXISTS (SELECT 1 FROM aclexplode(coalesce(r.proacl, acldefault('f', r.proowner))) a
+                WHERE a.grantee = 0) AS replacement_public_execute,
+       EXISTS (SELECT 1 FROM aclexplode(coalesce(o.proacl, acldefault('f', o.proowner))) a
+                WHERE a.grantee = 0) AS original_public_execute
+FROM pg_proc r
+JOIN pg_namespace n ON n.oid = r.pronamespace AND n.nspname = 'pg_catalog'
+JOIN pg_proc o ON o.pronamespace = r.pronamespace
+              AND o.proname = r.proname || '_orig'
+              AND o.proargtypes = r.proargtypes
+WHERE r.proname IN ('lo_import', 'lo_export')
+ORDER BY 1;
 DROP EXTENSION lolor;
 
 --
