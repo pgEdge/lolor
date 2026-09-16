@@ -319,6 +319,71 @@ SET lolor.node = 15;
 SET lolor.node = 1;
 
 --
+-- Permission enforcement.
+--
+-- Objects in lolor storage have no catalog entry, so lolor cannot use the
+-- syscache-backed owner and ACL checks and reimplements them against its own
+-- tables.  Exercise that path rather than assuming it matches core.
+--
+CREATE EXTENSION lolor;
+CREATE ROLE lolor_alice;
+CREATE ROLE lolor_bob;
+
+-- Large object error messages quote the OID, which is generated and so
+-- differs between runs.  Report the message with digits masked instead.
+CREATE FUNCTION lolor_expect_error(cmd text) RETURNS text AS $$
+BEGIN
+  EXECUTE cmd;
+  RETURN 'unexpectedly succeeded';
+EXCEPTION WHEN OTHERS THEN
+  RETURN regexp_replace(SQLERRM, '[0-9]+', 'NNN', 'g');
+END
+$$ LANGUAGE plpgsql;
+
+SET ROLE lolor_alice;
+SELECT lo_from_bytea(0, 'alice private data') AS alice_oid \gset
+SELECT convert_from(lo_get(:alice_oid), 'UTF8') AS owner_can_read;
+RESET ROLE;
+
+-- A different role gets nothing without a grant.
+SET ROLE lolor_bob;
+SELECT lolor_expect_error(format('SELECT lo_get(%s)', :alice_oid)) AS read_denied;
+SELECT lolor_expect_error(format('SELECT lo_open(%s, 262144)', :alice_oid)) AS open_denied;
+SELECT lolor_expect_error(format('SELECT lo_put(%s, 0, ''x'')', :alice_oid)) AS write_denied;
+SELECT lolor_expect_error(format('SELECT lo_unlink(%s)', :alice_oid)) AS unlink_denied;
+RESET ROLE;
+
+-- The superuser bypasses the check, as in core.
+SELECT convert_from(lo_get(:alice_oid), 'UTF8') AS superuser_can_read;
+
+-- GRANT/ALTER on a large object act on pg_largeobject_metadata, where an
+-- object in lolor storage has no row.  This limitation is documented; assert
+-- it so that a change in behaviour is noticed.
+SELECT lolor_expect_error(
+  format('GRANT SELECT ON LARGE OBJECT %s TO lolor_bob', :alice_oid)) AS grant_unsupported;
+SELECT lolor_expect_error(
+  format('ALTER LARGE OBJECT %s OWNER TO lolor_bob', :alice_oid)) AS alter_unsupported;
+
+SELECT lo_unlink(:alice_oid);
+
+--
+-- Objects in lolor storage are rows in ordinary tables and cannot participate
+-- in pg_shdepend, so DROP ROLE does not notice that a role still owns one.
+-- lolor.check_orphans() exists to make the consequence findable.
+--
+SET ROLE lolor_alice;
+SELECT lo_from_bytea(0, 'owned by a role about to vanish') AS orphan_oid \gset
+RESET ROLE;
+SELECT count(*) AS orphans_before FROM lolor.check_orphans();
+DROP ROLE lolor_alice;
+SELECT count(*) AS orphans_after FROM lolor.check_orphans();
+SELECT lo_unlink(:orphan_oid);
+SELECT count(*) AS orphans_cleared FROM lolor.check_orphans();
+DROP ROLE lolor_bob;
+DROP FUNCTION lolor_expect_error(text);
+DROP EXTENSION lolor;
+
+--
 -- 64-bit interface and page-boundary I/O.  lo_put(), lo_tell64() and
 -- lo_truncate64() had no coverage.
 --
@@ -430,6 +495,7 @@ SELECT lo_unlink(:multi_oid);
 -- Error paths.
 --
 SELECT lo_get(0);
+SELECT lo_unlink(0);
 BEGIN;
 SELECT lo_open(0, 262144);
 ROLLBACK;

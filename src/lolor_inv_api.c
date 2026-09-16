@@ -217,18 +217,20 @@ lolor_inv_create(Oid lobjId)
 	lobjId_new = LOLOR_LargeObjectCreate(lobjId);
 
 	/*
-	 * dependency on the owner of largeobject
+	 * No shared dependency is recorded for the owner.  Core records one under
+	 * classId LargeObjectRelationId, a genuine catalog the dependency
+	 * machinery knows how to describe; an object in lolor storage is a row in
+	 * an ordinary table, and passing the OID of lolor.pg_largeobject produced
+	 * pg_shdepend rows that DROP ROLE could not interpret, failing with
+	 * "unrecognized object class" and leaving the role undroppable.  They were
+	 * never removed either, because inv_drop() deleted with
+	 * PERFORM_DELETION_SKIP_ORIGINAL.  pg_shdepend is a shared catalog, so the
+	 * stored classId was a per-database relation OID meaningless elsewhere.
 	 *
-	 * Note that LO dependencies are recorded using classId
-	 * LOLOR_LargeObjectRelationId for backwards-compatibility reasons.  Using
-	 * LOLOR_LargeObjectMetadataRelationId instead would simplify matters for the
-	 * backend, but it'd complicate pg_dump and possibly break other clients.
+	 * Not tracking ownership is a real limitation, and inherent in storing
+	 * large objects outside the catalogs.  lolor.check_orphans() reports
+	 * objects whose owner no longer exists.
 	 */
-	recordDependencyOnOwner(get_LOLOR_LargeObjectRelationId(),
-							lobjId_new, GetUserId());
-
-	/* Post creation hook for new large object */
-	InvokeObjectPostCreateHook(get_LOLOR_LargeObjectRelationId(), lobjId_new, 0);
 
 	/*
 	 * Advance command counter to make new tuple visible to later operations.
@@ -347,16 +349,14 @@ lolor_inv_close(LargeObjectDesc *obj_desc)
 int
 lolor_inv_drop(Oid lobjId)
 {
-	ObjectAddress object;
-
 	/*
-	 * Delete any comments and dependencies on the large object
+	 * There are no comments, security labels or dependencies to remove: an
+	 * object in lolor storage is not a catalog object, so nothing can be
+	 * attached to it.  See the note in lolor_inv_create().  The performDeletion()
+	 * call that stood here searched pg_depend under a classId that is an
+	 * ordinary relation OID and could never match.
 	 */
-	object.classId = get_LOLOR_LargeObjectRelationId();
-	object.objectId = lobjId;
-	object.objectSubId = 0;
-	performDeletion(&object, DROP_CASCADE, PERFORM_DELETION_SKIP_ORIGINAL);
-	LOLOR_LargeObjectDrop(object.objectId);
+	LOLOR_LargeObjectDrop(lobjId);
 
 	/*
 	 * Advance command counter so that tuple removal will be seen by later

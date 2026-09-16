@@ -35,3 +35,38 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+/*
+ * Large objects in lolor storage whose owner no longer exists.
+ *
+ * Objects in lolor storage are rows in ordinary tables, so they cannot
+ * participate in pg_shdepend: DROP ROLE will not notice them the way it
+ * notices native large objects.  That is inherent to storing them outside the
+ * catalogs; this function makes the consequence findable.
+ */
+CREATE FUNCTION lolor.check_orphans()
+RETURNS TABLE (loid oid, lomowner oid) AS $$
+  SELECT m.oid, m.lomowner
+  FROM lolor.pg_largeobject_metadata m
+  LEFT JOIN pg_catalog.pg_authid a ON a.oid = m.lomowner
+  WHERE a.oid IS NULL
+  ORDER BY m.oid
+$$ LANGUAGE sql STABLE;
+
+/*
+ * Remove the bogus pg_shdepend rows left by earlier versions.
+ *
+ * Through 1.3.0, creating a large object recorded a pg_shdepend row whose
+ * classId was the OID of lolor.pg_largeobject -- an ordinary table, not a
+ * catalog the dependency machinery can describe.  DROP ROLE on any role that
+ * had created one failed with "unrecognized object class", and the rows were
+ * never removed.
+ *
+ * pg_shdepend is shared across the cluster, so restrict the delete to this
+ * database: the same classId in another database is an unrelated relation.
+ */
+DELETE FROM pg_catalog.pg_shdepend
+WHERE dbid = (SELECT oid FROM pg_catalog.pg_database
+               WHERE datname = current_database())
+  AND classid IN ('lolor.pg_largeobject'::regclass,
+                  'lolor.pg_largeobject_metadata'::regclass);
