@@ -39,10 +39,6 @@
 #define GETNEWOID_LOG_THRESHOLD 1000000
 #define GETNEWOID_LOG_MAX_INTERVAL 128000000
 
-/* Parameters to determine new unique Oid. */
-#define MAX_NODEID_BITS 4
-#define MAX_OID_BITS 28
-
 /*
  * Create a large object having the given LO identifier.
  *
@@ -204,8 +200,9 @@ LOLOR_LargeObjectExists(Oid loid)
  * LOLOR_GetNewOidWithIndex
  *		Generate a new OID that is unique within the given relation.
  *
- * The lower 4 bits contains the lolor_node_id. The 2^28 bits consist of Oid
- * returned from GetNewObjectId and adjusted to remain within the range.
+ * The low LOLOR_NODEID_BITS contain lolor_node_id; the remaining
+ * LOLOR_OID_BITS hold an Oid returned from GetNewObjectId, adjusted to remain
+ * within range.
  *
  * See comments for GetNewOidWithIndex() for more details.
  */
@@ -236,11 +233,11 @@ LOLOR_GetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn)
 		 * Keep the range within 1..2^28. Restart from start on overflow and see
 		 * if any of the Oids are avaialbe.
 		 */
-		newOid = newOid % (1 << MAX_OID_BITS);
+		newOid = newOid % (1 << LOLOR_OID_BITS);
 		if (newOid == 0)
 			newOid = 1;
 
-		newOid = (newOid << MAX_NODEID_BITS) | lolor_node_id;
+		newOid = (newOid << LOLOR_NODEID_BITS) | lolor_node_id;
 
 		if (IsBootstrapProcessingMode())
 			return newOid;
