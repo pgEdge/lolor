@@ -1,2 +1,0 @@
-#!/bin/bash
-docker build -t pgedgeinc/lolor -f Dockerfile.el9 .

@@ -1,4 +1,4 @@
-# Trivial check on the lolor functionality
+# Trivial check on the pg_lolor functionality
 #
 # Copyright (c) 2022-2025, pgEdge, Inc.
 # Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
@@ -24,43 +24,51 @@ $node->init;
 # ##############################################################################
 
 $node->start;
-$node->safe_psql('postgres', "CREATE EXTENSION lolor");
+$node->safe_psql('postgres', "CREATE EXTENSION pg_lolor");
 
 # Check
-($result, $stdout, $stderr) = $node->psql('postgres', qq(
-  SET lolor.node = 0;
+($result, $stdout, $stderr) = $node->psql(
+	'postgres', qq(
+  SET pg_lolor.node = 0;
   SELECT lo_creat(-1)
 ));
-like($stderr, qr/value for lolor.node is not set/, "Zero value of lolor node is treated as an unset");
+like(
+	$stderr,
+	qr/value for pg_lolor.node is not set/,
+	"Zero value of pg_lolor node is treated as an unset");
 
-$result = $node->safe_psql('postgres', qq(
-  SET lolor.node = 1;
+$result = $node->safe_psql(
+	'postgres', qq(
+  SET pg_lolor.node = 1;
   SELECT lo_creat(-1);
 ));
 ok($result > 0, "Lolor works and produces LO IDs");
 
-$node->safe_psql('postgres', "DROP EXTENSION lolor");
-$result = $node->safe_psql('postgres', qq(
-  SET lolor.node = 0;
+$node->safe_psql('postgres', "DROP EXTENSION pg_lolor");
+$result = $node->safe_psql(
+	'postgres', qq(
+  SET pg_lolor.node = 0;
   SELECT lo_creat(-1);
 ));
-ok($result > 0, "Lolor has been removed and standard lo_creat routine is used");
+ok($result > 0,
+	"Lolor has been removed and standard lo_creat routine is used");
 $node->stop();
 
 # ##############################################################################
 #
-# Tests when lolor is loaded statically
+# Tests when pg_lolor is loaded statically
 #
 # ##############################################################################
 
-$node->append_conf('postgresql.conf', qq{shared_preload_libraries = 'lolor'});
+$node->append_conf('postgresql.conf',
+	qq{shared_preload_libraries = 'pg_lolor'});
 $node->start;
 
-$result = $node->safe_psql('postgres', "CREATE EXTENSION lolor");
+$result = $node->safe_psql('postgres', "CREATE EXTENSION pg_lolor");
 
 is($result, '', 'Basic check on create extension script');
 
-$result = $node->safe_psql('postgres', "DROP EXTENSION lolor");
+$result = $node->safe_psql('postgres', "DROP EXTENSION pg_lolor");
 
 $node->stop();
 

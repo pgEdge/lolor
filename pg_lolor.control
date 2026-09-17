@@ -1,0 +1,11 @@
+# pg_lolor extension
+comment = 'Large Objects support for logical replication'
+default_version = '1.0'
+module_pathname = '$libdir/pg_lolor'
+relocatable = false
+# The schema cannot be called pg_lolor: PostgreSQL reserves the "pg_"
+# prefix for system schemas.
+# Not trusted: installing pg_lolor renames functions in pg_catalog for the
+# whole database, which a non-superuser should not be able to do.
+trusted = false
+schema = lolor

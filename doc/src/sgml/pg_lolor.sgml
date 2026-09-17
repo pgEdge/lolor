@@ -1,0 +1,308 @@
+<!-- doc/src/sgml/pg_lolor.sgml -->
+
+<sect1 id="pg_lolor" xreflabel="pg_lolor">
+ <title>pg_lolor &mdash; large objects stored in regular tables</title>
+
+ <indexterm zone="pg_lolor">
+  <primary>pg_lolor</primary>
+ </indexterm>
+
+ <para>
+  The <filename>pg_lolor</filename> module stores large objects in ordinary
+  tables instead of the <structname>pg_largeobject</structname> and
+  <structname>pg_largeobject_metadata</structname> system catalogs.
+ </para>
+
+ <para>
+  Large objects held in the system catalogs cannot be replicated by logical
+  decoding, because system catalogs are not decoded.  The tables this module
+  substitutes are ordinary user tables, so their contents are decoded and
+  replicated like any other table data.
+ </para>
+
+ <para>
+  The module installs replacements for the <function>lo_*</function>
+  functions in <literal>pg_catalog</literal>, so existing applications
+  continue to work unchanged; see <xref linkend="pg_lolor-notes"/> for the
+  consequences.
+ </para>
+
+ <sect2 id="pg_lolor-installation">
+  <title>Installation</title>
+
+  <para>
+   The module must be loaded by adding <literal>pg_lolor</literal> to
+   <xref linkend="guc-shared-preload-libraries"/> in
+   <filename>postgresql.conf</filename>, and the server restarted.  It can
+   then be installed with:
+
+<programlisting>
+CREATE EXTENSION pg_lolor;
+</programlisting>
+  </para>
+
+  <para>
+   Installing the extension renames the built-in large object functions in
+   <literal>pg_catalog</literal> out of the way and creates replacements in
+   their place.  Because this affects the whole database, the extension is
+   not marked <literal>trusted</literal> and installing it requires
+   superuser privileges.
+  </para>
+
+  <note>
+   <para>
+    The extension is named <literal>pg_lolor</literal>, but its tables and
+    functions live in a schema named <literal>lolor</literal>: PostgreSQL
+    reserves the <literal>pg_</literal> prefix for system schemas.  Install it
+    with <literal>CREATE EXTENSION pg_lolor</literal>, and call its functions
+    as <literal>lolor.<replaceable>function</replaceable>()</literal>.
+   </para>
+  </note>
+
+  <caution>
+   <para>
+    A standby server runs the same shared library as its primary, so the
+    module must be installed there as well.  Otherwise large object access
+    fails if the standby is promoted.
+   </para>
+  </caution>
+ </sect2>
+
+ <sect2 id="pg_lolor-configuration">
+  <title>Configuration Parameters</title>
+
+  <variablelist>
+   <varlistentry id="pg_lolor-node" xreflabel="pg_lolor.node">
+    <term>
+     <varname>pg_lolor.node</varname> (<type>integer</type>)
+     <indexterm>
+      <primary><varname>pg_lolor.node</varname> configuration parameter</primary>
+     </indexterm>
+    </term>
+    <listitem>
+     <para>
+      Identifies this node when generating large object OIDs.  The low four
+      bits of a generated OID hold this value, so that nodes writing
+      concurrently cannot assign the same OID.  Valid values are
+      <literal>0</literal> to <literal>15</literal>; the default is
+      <literal>0</literal>.  Each node of a replicated cluster must be given
+      a distinct value.
+     </para>
+     <para>
+      Only superusers can change this setting.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect2>
+
+ <sect2 id="pg_lolor-functions">
+  <title>Functions</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>
+     <function>lolor.enable() returns boolean</function>
+    </term>
+    <listitem>
+     <para>
+      Puts this module's large object functions in place, undoing
+      <function>lolor.disable()</function>.  Returns <literal>true</literal>
+      if the state was changed.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>
+     <function>lolor.disable() returns boolean</function>
+    </term>
+    <listitem>
+     <para>
+      Restores the built-in large object functions without removing the
+      extension, leaving the objects already in this module's tables
+      inaccessible until it is enabled again.  Returns <literal>true</literal>
+      if the state was changed.
+     </para>
+     <para>
+      Client sessions must reconnect after either call.  Renaming changes
+      which function OID owns each <function>lo_*</function> name, and libpq
+      resolves those OIDs once per connection and caches them.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>
+     <function>lolor.is_enabled() returns boolean</function>
+    </term>
+    <listitem>
+     <para>
+      Reports whether this module's functions are currently in place.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>
+     <function>lolor.migrate_from_native(peer_oids oid[] DEFAULT NULL) returns bigint</function>
+    </term>
+    <listitem>
+     <para>
+      Moves every large object from the system catalogs into this module's
+      tables, preserving OIDs, owners, ACLs, comments and the exact page
+      layout, and returns the number of objects moved.  Returns
+      <literal>-1</literal> without moving anything if the migration was
+      refused; <literal>0</literal> means there was nothing to move.
+     </para>
+     <para>
+      Native large object OIDs are not node-encoded, so two nodes can hold
+      different objects under the same OID.  Supplying the OIDs held by the
+      other nodes, collected with <function>lolor.native_lo_oids()</function>,
+      turns that collision into a refusal rather than silent divergence.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>
+     <function>lolor.migrate_to_native() returns bigint</function>
+    </term>
+    <listitem>
+     <para>
+      Moves every large object back into the system catalogs and returns the
+      number of objects moved.  Runs automatically when the extension is
+      dropped.  Unlike <function>lolor.migrate_from_native()</function> a
+      refusal is reported as an error, since losing large objects silently
+      is worse than a failed <command>DROP</command>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>
+     <function>lolor.native_lo_oids() returns setof oid</function>
+    </term>
+    <listitem>
+     <para>
+      The OIDs of the large objects held in the system catalogs on this node.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>
+     <function>lolor.digest() returns setof record</function>
+    </term>
+    <listitem>
+     <para>
+      A per-object checksum of this module's storage, for confirming that
+      nodes converged after a migration.  Reads every page, so it is
+      intended as a check rather than as routine monitoring.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>
+     <function>lolor.check_orphans() returns setof record</function>
+    </term>
+    <listitem>
+     <para>
+      Large objects whose owning role no longer exists.  See
+      <xref linkend="pg_lolor-notes"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   Execute permission on all of the above except
+   <function>lolor.is_enabled()</function>,
+   <function>lolor.digest()</function> and
+   <function>lolor.check_orphans()</function> is revoked from
+   <literal>PUBLIC</literal>; the migration functions additionally require
+   superuser.
+  </para>
+ </sect2>
+
+ <sect2 id="pg_lolor-migration">
+  <title>Migrating Between Storage</title>
+
+  <para>
+   Migration copies tuples directly between the two sets of tables, which
+   have identical column layouts.  Pages are carried across verbatim, so a
+   sparse large object stays sparse.  The layouts are verified against the
+   running server at migration time, so a catalog change in a later release
+   produces an error rather than corrupting data.
+  </para>
+
+  <para>
+   The whole movement is one transaction and takes
+   <literal>ShareRowExclusiveLock</literal> on both sets of tables until it
+   commits.  Ordinary large object access takes
+   <literal>RowExclusiveLock</literal>, which does not conflict with itself,
+   so without this a concurrent write could commit between the copy and the
+   emptying of the source and be lost.
+  </para>
+
+  <para>
+   Migration is node-local, and logical decoding cannot distinguish the row
+   movement from ordinary data changes: a subscriber that decoded it would
+   apply the relocation as real row changes and diverge from this node.
+   PostgreSQL offers no way to exclude specific changes from decoding, so
+   both functions refuse while any logical replication slot exists in the
+   database.  Drop the slots, migrate on each node, then re-create them.
+  </para>
+
+  <para>
+   Security labels cannot be represented in this module's tables and cannot
+   be reinstated without their label provider, so
+   <function>lolor.migrate_from_native()</function> refuses rather than
+   discarding them.
+  </para>
+ </sect2>
+
+ <sect2 id="pg_lolor-notes">
+  <title>Notes</title>
+
+  <para>
+   The built-in large object functionality cannot be used while this module
+   is enabled, since it replaces the functions that reach it.
+  </para>
+
+  <para>
+   <command>ALTER LARGE OBJECT</command>,
+   <command>GRANT</command>/<command>REVOKE ON LARGE OBJECT</command> and
+   <command>COMMENT ON LARGE OBJECT</command> act on
+   <structname>pg_largeobject_metadata</structname>, where an object held by
+   this module has no row, and so do not work against such objects.  Owners,
+   ACLs and comments set while an object was in the system catalogs are
+   preserved across migration in both directions.
+  </para>
+
+  <para>
+   Objects held by this module are rows in ordinary tables and cannot
+   participate in <structname>pg_shdepend</structname>, so
+   <command>DROP ROLE</command> does not notice that a role still owns one,
+   as it would for a large object in the system catalogs.  Use
+   <function>lolor.check_orphans()</function> to find objects whose owner has
+   been dropped.
+  </para>
+
+  <para>
+   Dropping the extension, the schema with <literal>CASCADE</literal>, or the
+   objects owned by the extension's owner all move the large objects back
+   into the system catalogs first, so they are not lost.
+  </para>
+ </sect2>
+
+ <sect2 id="pg_lolor-author">
+  <title>Author</title>
+
+  <para>
+   pgEdge, Inc. <email>https://www.pgedge.com</email>
+  </para>
+ </sect2>
+
+</sect1>
