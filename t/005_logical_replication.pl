@@ -1,4 +1,4 @@
-# Check logical replication of lolor large objects
+# Check logical replication of pg_lolor large objects
 #
 # Copyright (c) 2022-2026, pgEdge, Inc.
 #
@@ -16,63 +16,70 @@ my ($result, $stdout, $stderr);
 
 # Setup publisher with logical replication support
 $publisher->init(allows_streaming => 'logical');
-$publisher->append_conf('postgresql.conf', qq{lolor.node = 1});
+$publisher->append_conf('postgresql.conf', qq{pg_lolor.node = 1});
 $publisher->start;
-$publisher->safe_psql('postgres', "CREATE EXTENSION lolor");
+$publisher->safe_psql('postgres', "CREATE EXTENSION pg_lolor");
 
-# Create a lolor large object BEFORE setting up subscription
+# Create a pg_lolor large object BEFORE setting up subscription
 $publisher->safe_psql('postgres',
-				qq(SELECT lo_from_bytea(1, 'pre-subscription LO')));
+	qq(SELECT lo_from_bytea(1, 'pre-subscription LO')));
 
-# Create publication for lolor tables
+# Create publication for pg_lolor tables
 $publisher->safe_psql('postgres',
-	"CREATE PUBLICATION lolor_pub FOR TABLE lolor.pg_largeobject, lolor.pg_largeobject_metadata");
+	"CREATE PUBLICATION pg_lolor_pub FOR TABLE lolor.pg_largeobject, lolor.pg_largeobject_metadata"
+);
 
-# Setup subscriber with lolor extension (tables must exist before subscription)
+# Setup subscriber with pg_lolor extension (tables must exist before subscription)
 $subscriber->init;
-$subscriber->append_conf('postgresql.conf', qq{lolor.node = 2});
+$subscriber->append_conf('postgresql.conf', qq{pg_lolor.node = 2});
 $subscriber->start;
-$subscriber->safe_psql('postgres', "CREATE EXTENSION lolor");
+$subscriber->safe_psql('postgres', "CREATE EXTENSION pg_lolor");
 
 # Create subscription
 my $publisher_connstr = $publisher->connstr . ' dbname=postgres';
 $subscriber->safe_psql('postgres',
-	"CREATE SUBSCRIPTION lolor_sub CONNECTION '$publisher_connstr' PUBLICATION lolor_pub");
+	"CREATE SUBSCRIPTION pg_lolor_sub CONNECTION '$publisher_connstr' PUBLICATION pg_lolor_pub"
+);
 
 # Wait for initial table sync to complete
-$subscriber->wait_for_subscription_sync($publisher, 'lolor_sub');
+$subscriber->wait_for_subscription_sync($publisher, 'pg_lolor_sub');
 
 # Verify pre-subscription object replicated via initial sync
-$result = $subscriber->safe_psql('postgres', qq(
+$result = $subscriber->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(1, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-is($result, 'pre-subscription LO',
+is( $result,
+	'pre-subscription LO',
 	"Pre-subscription LO replicated via initial sync");
 
 # Create another object on publisher AFTER subscription is active
 $publisher->safe_psql('postgres',
-				qq(SELECT lo_from_bytea(2, 'post-subscription LO')));
+	qq(SELECT lo_from_bytea(2, 'post-subscription LO')));
 
 # Wait for subscriber to catch up with ongoing changes
-$publisher->wait_for_catchup('lolor_sub');
+$publisher->wait_for_catchup('pg_lolor_sub');
 
 # Verify post-subscription object replicated via streaming
-$result = $subscriber->safe_psql('postgres', qq(
+$result = $subscriber->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(2, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-is($result, 'post-subscription LO',
+is( $result,
+	'post-subscription LO',
 	"Post-subscription LO replicated via logical streaming");
 
 # lo_lseek: seek to offset 15, overwrite 11 bytes, verify on both nodes
 $publisher->safe_psql('postgres',
 	qq(SELECT lo_from_bytea(3, '0123456789abcdefghijklmnopqrstuvwxyz')));
-$publisher->safe_psql('postgres', qq(
+$publisher->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(3, x'60000'::int) AS fd \\gset
 	SELECT lo_lseek(:fd, 15, 0);
@@ -80,24 +87,28 @@ $publisher->safe_psql('postgres', qq(
 	SELECT lo_close(:fd);
 	END;
 ));
-$publisher->wait_for_catchup('lolor_sub');
+$publisher->wait_for_catchup('pg_lolor_sub');
 
-$result = $publisher->safe_psql('postgres', qq(
+$result = $publisher->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(3, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-is($result, '0123456789abcde<ADDEDDATA>qrstuvwxyz',
+is( $result,
+	'0123456789abcde<ADDEDDATA>qrstuvwxyz',
 	"lo_lseek: overwritten content correct on publisher");
 
-$result = $subscriber->safe_psql('postgres', qq(
+$result = $subscriber->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(3, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-is($result, '0123456789abcde<ADDEDDATA>qrstuvwxyz',
+is( $result,
+	'0123456789abcde<ADDEDDATA>qrstuvwxyz',
 	"lo_lseek: seeked/overwritten content replicated to subscriber");
 
 # lo_tell: verify cursor positions (publisher only — tell is a local cursor op).
@@ -107,7 +118,8 @@ $publisher->safe_psql('postgres',
 	qq(SELECT lo_from_bytea(4, '0123456789abcdefghijklmnopqrstuvwxyz')));
 
 # \gset suppresses lo_open output; only lo_tell and lo_close print a row each.
-my $pos = $publisher->safe_psql('postgres', qq(
+my $pos = $publisher->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(4, 262144) AS fd \\gset
 	SELECT lo_tell(:fd);
@@ -117,19 +129,8 @@ my $pos = $publisher->safe_psql('postgres', qq(
 is((split /\n/, $pos)[0], '0', "lo_tell: position at open is 0");
 
 # lowrite prints one row, then lo_tell prints one row, then lo_close one row.
-$pos = $publisher->safe_psql('postgres', qq(
-	BEGIN;
-	SELECT lo_open(4, x'60000'::int) AS fd \\gset
-	SELECT lowrite(:fd, '<ADDEDDATA>');
-	SELECT lo_tell(:fd);
-	SELECT lo_close(:fd);
-	END;
-));
-is((split /\n/, $pos)[1], '11', "lo_tell: position after 11-byte write is 11");
-
-$publisher->wait_for_catchup('lolor_sub');
-
-$pos = $subscriber->safe_psql('postgres', qq(
+$pos = $publisher->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(4, x'60000'::int) AS fd \\gset
 	SELECT lowrite(:fd, '<ADDEDDATA>');
@@ -138,21 +139,37 @@ $pos = $subscriber->safe_psql('postgres', qq(
 	END;
 ));
 is((split /\n/, $pos)[1], '11',
-	"lo_tell: position after 11-byte write is 11 on subscriber");
+	"lo_tell: position after 11-byte write is 11");
+
+$publisher->wait_for_catchup('pg_lolor_sub');
+
+$pos = $subscriber->safe_psql(
+	'postgres', qq(
+	BEGIN;
+	SELECT lo_open(4, x'60000'::int) AS fd \\gset
+	SELECT lowrite(:fd, '<ADDEDDATA>');
+	SELECT lo_tell(:fd);
+	SELECT lo_close(:fd);
+	END;
+));
+is((split /\n/, $pos)[1],
+	'11', "lo_tell: position after 11-byte write is 11 on subscriber");
 
 # lo_truncate: truncate to 10 bytes, verify prefix on both nodes
 $publisher->safe_psql('postgres',
 	qq(SELECT lo_from_bytea(5, '0123456789abcdefghijklmnopqrstuvwxyz')));
-$publisher->safe_psql('postgres', qq(
+$publisher->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(5, x'60000'::int) AS fd \\gset
 	SELECT lo_truncate(:fd, 10);
 	SELECT lo_close(:fd);
 	END;
 ));
-$publisher->wait_for_catchup('lolor_sub');
+$publisher->wait_for_catchup('pg_lolor_sub');
 
-$result = $publisher->safe_psql('postgres', qq(
+$result = $publisher->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(5, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
@@ -160,13 +177,15 @@ $result = $publisher->safe_psql('postgres', qq(
 ));
 is($result, '0123456789', "lo_truncate: only prefix survives on publisher");
 
-$result = $subscriber->safe_psql('postgres', qq(
+$result = $subscriber->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(5, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-is($result, '0123456789', "lo_truncate: truncated content replicated to subscriber");
+is($result, '0123456789',
+	"lo_truncate: truncated content replicated to subscriber");
 
 # Catalog consistency: pg_largeobject_metadata and pg_largeobject row counts
 # must match between publisher and subscriber after all operations.
@@ -175,7 +194,8 @@ my $pub_meta = $publisher->safe_psql('postgres',
 my $sub_meta = $subscriber->safe_psql('postgres',
 	"SELECT count(*) FROM lolor.pg_largeobject_metadata");
 is($sub_meta, $pub_meta,
-	"catalog consistency: pg_largeobject_metadata row count matches across nodes");
+	"catalog consistency: pg_largeobject_metadata row count matches across nodes"
+);
 
 my $pub_lo = $publisher->safe_psql('postgres',
 	"SELECT count(*) FROM lolor.pg_largeobject");

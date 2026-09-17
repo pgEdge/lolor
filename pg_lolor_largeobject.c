@@ -1,0 +1,337 @@
+/*-------------------------------------------------------------------------
+ *
+ * pg_lolor_largeobject.c
+ *	  routines to support manipulation of the pg_largeobject relation
+ *
+ * Copyright (c) 2022-2026, pgEdge, Inc.
+ * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1994, Regents of the University of California
+ *
+ *
+ * IDENTIFICATION
+ *	  contrib/pg_lolor/pg_lolor_largeobject.c
+ *
+ *-------------------------------------------------------------------------
+ */
+#include "postgres.h"
+
+#include "access/genam.h"
+#include "access/htup_details.h"
+#include "access/sysattr.h"
+#include "access/table.h"
+#include "catalog/catalog.h"
+#include "catalog/dependency.h"
+#include "catalog/indexing.h"
+#include "catalog/pg_largeobject.h"
+#include "catalog/pg_largeobject_metadata.h"
+#include "miscadmin.h"
+#include "utils/acl.h"
+#include "utils/fmgroids.h"
+#include "utils/rel.h"
+#include "utils/snapmgr.h"
+
+#include "pg_lolor.h"
+
+/*
+ * Parameters to determine when to emit a log message in
+ * PG_LOLOR_GetNewOidWithIndex()
+ */
+#define GETNEWOID_LOG_THRESHOLD 1000000
+#define GETNEWOID_LOG_MAX_INTERVAL 128000000
+
+/*
+ * Create a large object having the given LO identifier.
+ *
+ * We create a new large object by inserting an entry into
+ * pg_largeobject_metadata without any data pages, so that the object
+ * will appear to exist with size 0.
+ */
+Oid
+PG_LOLOR_LargeObjectCreate(Oid loid)
+{
+	Relation	pg_lo_meta;
+	HeapTuple	ntup;
+	Oid			loid_new;
+	Datum		values[Natts_pg_largeobject_metadata];
+	bool		nulls[Natts_pg_largeobject_metadata];
+
+	pg_lo_meta = table_open(get_PG_LOLOR_LargeObjectMetadataRelationId(),
+							RowExclusiveLock);
+
+	/*
+	 * Insert metadata of the largeobject
+	 */
+	memset(values, 0, sizeof(values));
+	memset(nulls, false, sizeof(nulls));
+
+	if (OidIsValid(loid))
+		loid_new = loid;
+	else
+		loid_new = PG_LOLOR_GetNewOidWithIndex(pg_lo_meta,
+											   get_PG_LOLOR_LargeObjectMetadataOidIndexId(),
+											   Anum_pg_largeobject_metadata_oid);
+
+	values[Anum_pg_largeobject_metadata_oid - 1] = ObjectIdGetDatum(loid_new);
+	values[Anum_pg_largeobject_metadata_lomowner - 1]
+		= ObjectIdGetDatum(GetUserId());
+	nulls[Anum_pg_largeobject_metadata_lomacl - 1] = true;
+
+	ntup = heap_form_tuple(RelationGetDescr(pg_lo_meta),
+						   values, nulls);
+
+	CatalogTupleInsert(pg_lo_meta, ntup);
+
+	heap_freetuple(ntup);
+
+	table_close(pg_lo_meta, RowExclusiveLock);
+
+	return loid_new;
+}
+
+/*
+ * Drop a large object having the given LO identifier.  Both the data pages
+ * and metadata must be dropped.
+ */
+void
+PG_LOLOR_LargeObjectDrop(Oid loid)
+{
+	Relation	pg_lo_meta;
+	Relation	pg_largeobject;
+	ScanKeyData skey[1];
+	SysScanDesc scan;
+	HeapTuple	tuple;
+	Oid			descoid;
+
+	pg_lo_meta = table_open(get_PG_LOLOR_LargeObjectMetadataRelationId(),
+							RowExclusiveLock);
+
+	pg_largeobject = table_open(get_PG_LOLOR_LargeObjectRelationId(),
+								RowExclusiveLock);
+
+	/*
+	 * Delete an entry from pg_largeobject_metadata
+	 */
+	ScanKeyInit(&skey[0],
+				Anum_pg_largeobject_metadata_oid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(loid));
+
+	scan = systable_beginscan(pg_lo_meta,
+							  get_PG_LOLOR_LargeObjectMetadataOidIndexId(), true,
+							  NULL, 1, skey);
+
+	tuple = systable_getnext(scan);
+	if (!HeapTupleIsValid(tuple))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("large object %u does not exist", loid)));
+
+	CatalogTupleDelete(pg_lo_meta, &tuple->t_self);
+
+	systable_endscan(scan);
+
+	/*
+	 * Delete all the associated entries from pg_largeobject
+	 */
+	ScanKeyInit(&skey[0],
+				Anum_pg_largeobject_loid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(loid));
+
+	scan = systable_beginscan(pg_largeobject,
+							  get_PG_LOLOR_LargeObjectLOidPNIndexId(), true,
+							  NULL, 1, skey);
+	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
+	{
+		CatalogTupleDelete(pg_largeobject, &tuple->t_self);
+	}
+
+	systable_endscan(scan);
+
+	table_close(pg_largeobject, RowExclusiveLock);
+
+	table_close(pg_lo_meta, RowExclusiveLock);
+
+	/*
+	 * Drop any comment parked for this object while it lived in pg_lolor
+	 * storage. Leaving it behind would outlive the object: OIDs are only
+	 * checked against pg_largeobject_metadata when a new one is generated, so
+	 * a later object reusing this OID would inherit the stale comment on its
+	 * way back to native storage.
+	 *
+	 * The relation is absent when the loaded library is newer than the
+	 * installed extension version, which is the normal state between
+	 * installing the package and running ALTER EXTENSION UPDATE.
+	 */
+	descoid = get_PG_LOLOR_LargeObjectDescriptionRelationIdIfExists();
+	if (OidIsValid(descoid))
+	{
+		Relation	pg_lo_desc = table_open(descoid, RowExclusiveLock);
+
+		ScanKeyInit(&skey[0],
+					1,			/* loid */
+					BTEqualStrategyNumber, F_OIDEQ,
+					ObjectIdGetDatum(loid));
+
+		scan = systable_beginscan(pg_lo_desc,
+								  get_PG_LOLOR_LargeObjectDescriptionIndexId(),
+								  true, NULL, 1, skey);
+
+		while (HeapTupleIsValid(tuple = systable_getnext(scan)))
+			CatalogTupleDelete(pg_lo_desc, &tuple->t_self);
+
+		systable_endscan(scan);
+		table_close(pg_lo_desc, RowExclusiveLock);
+	}
+}
+
+/*
+ * PG_LOLOR_LargeObjectExists
+ *
+ * We don't use the system cache for large object metadata, for fear of
+ * using too much local memory.
+ *
+ * This function always scans the system catalog using an up-to-date snapshot,
+ * so it should not be used when a large object is opened in read-only mode
+ * (because large objects opened in read only mode are supposed to be viewed
+ * relative to the caller's snapshot, whereas in read-write mode they are
+ * relative to a current snapshot).
+ */
+bool
+PG_LOLOR_LargeObjectExists(Oid loid)
+{
+	Relation	pg_lo_meta;
+	ScanKeyData skey[1];
+	SysScanDesc sd;
+	HeapTuple	tuple;
+	bool		retval = false;
+
+	ScanKeyInit(&skey[0],
+				Anum_pg_largeobject_metadata_oid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(loid));
+
+	pg_lo_meta = table_open(get_PG_LOLOR_LargeObjectMetadataRelationId(),
+							AccessShareLock);
+
+	sd = systable_beginscan(pg_lo_meta,
+							get_PG_LOLOR_LargeObjectMetadataOidIndexId(), true,
+							NULL, 1, skey);
+
+	tuple = systable_getnext(sd);
+	if (HeapTupleIsValid(tuple))
+		retval = true;
+
+	systable_endscan(sd);
+
+	table_close(pg_lo_meta, AccessShareLock);
+
+	return retval;
+}
+
+/*
+ * PG_LOLOR_GetNewOidWithIndex
+ *		Generate a new OID that is unique within the given relation.
+ *
+ * The low PG_LOLOR_NODEID_BITS contain pg_lolor_node_id; the remaining
+ * PG_LOLOR_OID_BITS hold an Oid returned from GetNewObjectId, adjusted to remain
+ * within range.
+ *
+ * See comments for GetNewOidWithIndex() for more details.
+ */
+Oid
+PG_LOLOR_GetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn)
+{
+	Oid			newOid;
+	SysScanDesc scan;
+	ScanKeyData key;
+	bool		collides;
+	uint64		retries = 0;
+	uint64		retries_before_log = GETNEWOID_LOG_THRESHOLD;
+
+	/* Check that GUC pg_lolor.node is set */
+	if (pg_lolor_node_id == 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_CONFIG_FILE_ERROR),
+				 errmsg("value for pg_lolor.node is not set")));
+
+	/* Generate new OIDs until we find one not in the table */
+	do
+	{
+		CHECK_FOR_INTERRUPTS();
+
+		newOid = GetNewObjectId();
+
+		/*
+		 * Keep the range within 1..2^28. Restart from start on overflow and
+		 * see if any of the Oids are avaialbe.
+		 */
+		newOid = newOid % (1 << PG_LOLOR_OID_BITS);
+		if (newOid == 0)
+			newOid = 1;
+
+		newOid = (newOid << PG_LOLOR_NODEID_BITS) | pg_lolor_node_id;
+
+		if (IsBootstrapProcessingMode())
+			return newOid;
+
+		ScanKeyInit(&key,
+					oidcolumn,
+					BTEqualStrategyNumber, F_OIDEQ,
+					ObjectIdGetDatum(newOid));
+
+		/* see notes above about using SnapshotAny */
+		scan = systable_beginscan(relation, indexId, true,
+								  SnapshotAny, 1, &key);
+
+		collides = HeapTupleIsValid(systable_getnext(scan));
+
+		systable_endscan(scan);
+
+		/*
+		 * Log that we iterate more than GETNEWOID_LOG_THRESHOLD but have not
+		 * yet found OID unused in the relation. Then repeat logging with
+		 * exponentially increasing intervals until we iterate more than
+		 * GETNEWOID_LOG_MAX_INTERVAL. Finally repeat logging every
+		 * GETNEWOID_LOG_MAX_INTERVAL unless an unused OID is found. This
+		 * logic is necessary not to fill up the server log with the similar
+		 * messages.
+		 */
+		if (retries >= retries_before_log)
+		{
+			ereport(LOG,
+					(errmsg("still searching for an unused OID in relation \"%s\"",
+							RelationGetRelationName(relation)),
+					 errdetail_plural("OID candidates have been checked %llu time, but no unused OID has been found yet.",
+									  "OID candidates have been checked %llu times, but no unused OID has been found yet.",
+									  retries,
+									  (unsigned long long) retries)));
+
+			/*
+			 * Double the number of retries to do before logging next until it
+			 * reaches GETNEWOID_LOG_MAX_INTERVAL.
+			 */
+			if (retries_before_log * 2 <= GETNEWOID_LOG_MAX_INTERVAL)
+				retries_before_log *= 2;
+			else
+				retries_before_log += GETNEWOID_LOG_MAX_INTERVAL;
+		}
+
+		retries++;
+	} while (collides);
+
+	/*
+	 * If at least one log message is emitted, also log the completion of OID
+	 * assignment.
+	 */
+	if (retries > GETNEWOID_LOG_THRESHOLD)
+	{
+		ereport(LOG,
+				(errmsg_plural("new OID has been assigned in relation \"%s\" after %llu retry",
+							   "new OID has been assigned in relation \"%s\" after %llu retries",
+							   retries,
+							   RelationGetRelationName(relation), (unsigned long long) retries)));
+	}
+
+	return newOid;
+}

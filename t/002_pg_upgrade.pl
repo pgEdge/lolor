@@ -20,22 +20,23 @@ my ($result, $stdout, $stderr);
 
 # Prepare old node to be upgraded
 $old->init;
-$old->append_conf('postgresql.conf', qq{lolor.node = 1});
+$old->append_conf('postgresql.conf', qq{pg_lolor.node = 1});
 $old->start;
-$old->safe_psql('postgres', "CREATE EXTENSION lolor");
+$old->safe_psql('postgres', "CREATE EXTENSION pg_lolor");
 $old->safe_psql('postgres',
-				qq(SELECT lo_from_bytea(1, 'lolor LO object - 1')));
-$old->safe_psql('postgres', qq(
-  SET lolor.node = 1;
+	qq(SELECT lo_from_bytea(1, 'pg_lolor LO object - 1')));
+$old->safe_psql(
+	'postgres', qq(
+  SET pg_lolor.node = 1;
   SELECT lo_creat(-1);
 ));
 $old->safe_psql('postgres', "SELECT lolor.disable()");
 $old->safe_psql('postgres',
-				qq(SELECT lo_from_bytea(1, 'built-in LO object - 1')));
+	qq(SELECT lo_from_bytea(1, 'built-in LO object - 1')));
 $old->stop();
 
 $new->init;
-$new->append_conf('postgresql.conf', qq{lolor.node = 1});
+$new->append_conf('postgresql.conf', qq{pg_lolor.node = 1});
 
 command_ok(
 	[
@@ -51,28 +52,32 @@ command_ok(
 $new->start;
 $new->safe_psql('postgres', "SELECT 1");
 
-# Should not conflict with lolor
-$new->safe_psql('postgres', "SELECT lo_from_bytea(2, 'built-in LO object - 2')");
+# Should not conflict with pg_lolor
+$new->safe_psql('postgres',
+	"SELECT lo_from_bytea(2, 'built-in LO object - 2')");
 # Should see built-in object, created on the old node
-$result = $new->safe_psql('postgres', qq(
+$result = $new->safe_psql(
+	'postgres', qq(
 	BEGIN; -- built-in object
 	SELECT lo_open(1, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-ok($result eq 'built-in LO object - 1', "Check built-in LO works after upgrade");
+ok( $result eq 'built-in LO object - 1',
+	"Check built-in LO works after upgrade");
 
 $new->safe_psql('postgres', "SELECT lolor.enable()");
 # Should not conflict with built-in LO storage
-$new->safe_psql('postgres', "SELECT lo_from_bytea(2, 'lolor LO object')");
-# Should see lolor object, created on the old node
-$result = $new->safe_psql('postgres', qq(
-	BEGIN; -- lolor object
+$new->safe_psql('postgres', "SELECT lo_from_bytea(2, 'pg_lolor LO object')");
+# Should see pg_lolor object, created on the old node
+$result = $new->safe_psql(
+	'postgres', qq(
+	BEGIN; -- pg_lolor object
 	SELECT lo_open(1, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-ok($result eq 'lolor LO object - 1', "Check lolor works after upgrade");
+ok($result eq 'pg_lolor LO object - 1', "Check pg_lolor works after upgrade");
 
 $new->stop();
 

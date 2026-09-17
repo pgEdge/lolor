@@ -1,4 +1,4 @@
-# Check dump and restore of lolor large objects
+# Check dump and restore of pg_lolor large objects
 #
 # Copyright (c) 2022-2026, pgEdge, Inc.
 #
@@ -14,82 +14,88 @@ my $src = PostgreSQL::Test::Cluster->new('src_node');
 my $dst = PostgreSQL::Test::Cluster->new('dst_node');
 my ($result, $stdout, $stderr);
 
-# Setup source node with lolor extension
+# Setup source node with pg_lolor extension
 $src->init;
-$src->append_conf('postgresql.conf', qq{lolor.node = 1});
+$src->append_conf('postgresql.conf', qq{pg_lolor.node = 1});
 $src->start;
-$src->safe_psql('postgres', "CREATE EXTENSION lolor");
+$src->safe_psql('postgres', "CREATE EXTENSION pg_lolor");
 
-# Create lolor large objects with known content
+# Create pg_lolor large objects with known content
 $src->safe_psql('postgres',
-				qq(SELECT lo_from_bytea(1, 'lolor LO object - 1')));
+	qq(SELECT lo_from_bytea(1, 'pg_lolor LO object - 1')));
 $src->safe_psql('postgres',
-				qq(SELECT lo_from_bytea(2, 'lolor LO object - 2')));
+	qq(SELECT lo_from_bytea(2, 'pg_lolor LO object - 2')));
 
 # Verify content on source before dump
-$result = $src->safe_psql('postgres', qq(
+$result = $src->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(1, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-is($result, 'lolor LO object - 1', "Verify first LO content on source");
+is($result, 'pg_lolor LO object - 1', "Verify first LO content on source");
 
-$result = $src->safe_psql('postgres', qq(
+$result = $src->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(2, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-is($result, 'lolor LO object - 2', "Verify second LO content on source");
+is($result, 'pg_lolor LO object - 2', "Verify second LO content on source");
 
 # Dump the source database
 my $dump_file = $src->data_dir . '/dump.sql';
-command_ok(
-	['pg_dump', '-f', $dump_file, '-d', $src->connstr('postgres')],
-	'pg_dump succeeds on source with lolor objects');
+command_ok([ 'pg_dump', '-f', $dump_file, '-d', $src->connstr('postgres') ],
+	'pg_dump succeeds on source with pg_lolor objects');
 
 $src->stop;
 
 # Setup destination node and restore
 $dst->init;
-$dst->append_conf('postgresql.conf', qq{lolor.node = 1});
+$dst->append_conf('postgresql.conf', qq{pg_lolor.node = 1});
 $dst->start;
 
 command_ok(
-	['psql', '-X', '-f', $dump_file, '-d', $dst->connstr('postgres')],
+	[ 'psql', '-X', '-f', $dump_file, '-d', $dst->connstr('postgres') ],
 	'restore dump on destination node succeeds');
 
-# Verify lolor objects survived dump/restore
-$result = $dst->safe_psql('postgres', qq(
+# Verify pg_lolor objects survived dump/restore
+$result = $dst->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(1, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-is($result, 'lolor LO object - 1',
-	"First lolor LO preserved after dump/restore");
+is( $result,
+	'pg_lolor LO object - 1',
+	"First pg_lolor LO preserved after dump/restore");
 
-$result = $dst->safe_psql('postgres', qq(
+$result = $dst->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(2, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-is($result, 'lolor LO object - 2',
-	"Second lolor LO preserved after dump/restore");
+is( $result,
+	'pg_lolor LO object - 2',
+	"Second pg_lolor LO preserved after dump/restore");
 
-# Verify new lolor objects can be created on destination
-$dst->safe_psql('postgres',
-				qq(SELECT lo_from_bytea(3, 'new object on dst')));
-$result = $dst->safe_psql('postgres', qq(
+# Verify new pg_lolor objects can be created on destination
+$dst->safe_psql('postgres', qq(SELECT lo_from_bytea(3, 'new object on dst')));
+$result = $dst->safe_psql(
+	'postgres', qq(
 	BEGIN;
 	SELECT lo_open(3, 262144) AS fd \\gset
 	SELECT convert_from(loread(:fd, 1024), 'UTF8');
 	END;
 ));
-is($result, 'new object on dst',
-	"Can create and read new lolor objects after restore");
+is( $result,
+	'new object on dst',
+	"Can create and read new pg_lolor objects after restore");
 
 $dst->stop;
 
