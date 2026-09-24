@@ -142,15 +142,18 @@ DROP EXTENSION lolor;
 SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
   'lolor_lo_open');
 
--- Check: we can't just delete LOLOR without LO migration in disabled mode.
--- XXX: should we introduce a 'forced' flag to allow this?
+-- DROP EXTENSION while lolor is disabled.  The reverse migration works
+-- against the catalogs directly rather than through the renamed _orig
+-- functions, so the disabled state is not a special case and the objects are
+-- still rescued.
 CREATE EXTENSION lolor;
+SELECT lo_from_bytea(0, 'stored before disabling') AS disabled_drop_oid \gset
 SELECT lolor.disable();
 DROP EXTENSION lolor;
-SELECT extname FROM pg_extension; -- lolor is here
-SELECT lolor.enable();
-DROP EXTENSION lolor;
 SELECT extname FROM pg_extension; -- check lolor removal
+-- The object was migrated to native storage, not dropped with lolor's tables
+SELECT convert_from(lo_get(:disabled_drop_oid), 'UTF8') AS survived_disabled_drop;
+SELECT lo_unlink(:disabled_drop_oid);
 
 --
 -- Migration tests: migrate_from_native / migrate_to_native / DROP EXTENSION
@@ -598,4 +601,245 @@ SELECT convert_from(lo_get(:kept_oid), 'UTF8') AS object_untouched;
 SELECT count(*) AS still_in_lolor_storage
   FROM lolor.pg_largeobject_metadata WHERE oid = :kept_oid;
 SELECT lo_unlink(:kept_oid);
+DROP EXTENSION lolor;
+
+--
+-- Fidelity of the storage relocation
+--
+CREATE EXTENSION lolor;
+CREATE ROLE lolor_owner;
+CREATE ROLE lolor_grantee;
+
+-- A sparse object: two pages holding a 10 MB logical object.  Migration must
+-- not fill the hole; the old implementation rewrote it through the LO API and
+-- materialised every intervening page.
+SELECT lolor.disable();
+SELECT lo_create(0) AS sparse_oid \gset
+BEGIN;
+SELECT lo_open(:sparse_oid, x'60000'::int) AS fd \gset
+SELECT lowrite(:fd, 'start');
+SELECT lo_lseek64(:fd, 10000000, 0);
+SELECT lowrite(:fd, 'end');
+SELECT lo_close(:fd);
+END;
+
+-- An object carrying owner, ACL and a comment
+SELECT lo_from_bytea(0, 'annotated object') AS annotated_oid \gset
+ALTER LARGE OBJECT :annotated_oid OWNER TO lolor_owner;
+GRANT SELECT ON LARGE OBJECT :annotated_oid TO lolor_grantee;
+COMMENT ON LARGE OBJECT :annotated_oid IS 'kept across migration';
+
+-- An object with no data pages at all
+SELECT lo_create(0) AS empty_oid \gset
+
+SELECT lolor.enable();
+SELECT lolor.migrate_from_native();
+
+-- Sparse object keeps its exact page count (2), not 4883
+SELECT count(*) AS sparse_pages FROM lolor.pg_largeobject WHERE loid = :sparse_oid;
+SELECT lo_get(:sparse_oid) IS NOT NULL AS sparse_readable;
+SELECT length(lo_get(:sparse_oid)) AS sparse_length;
+SELECT length(lo_get(:empty_oid)) AS empty_length;
+
+-- Owner and ACL survive; the comment is parked for the round trip
+SELECT pg_get_userbyid(lomowner) AS owner, lomacl IS NOT NULL AS has_acl
+FROM lolor.pg_largeobject_metadata WHERE oid = :annotated_oid;
+SELECT description FROM lolor.pg_largeobject_description WHERE loid = :annotated_oid;
+
+-- Native side is fully cleaned up, including shared deps and comments
+SELECT count(*) AS native_objs FROM pg_catalog.pg_largeobject_metadata;
+SELECT count(*) AS native_shdep FROM pg_shdepend
+  WHERE classid = 'pg_largeobject'::regclass
+    AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database());
+SELECT count(*) AS native_comments FROM pg_description
+  WHERE classoid = 'pg_largeobject'::regclass;
+
+-- Back to native storage
+SELECT lolor.migrate_to_native();
+
+-- Ownership is recorded in pg_shdepend, not merely in lomowner: a raw catalog
+-- UPDATE would leave DROP ROLE unable to see the object.
+SELECT pg_get_userbyid(lomowner) AS owner
+FROM pg_catalog.pg_largeobject_metadata WHERE oid = :annotated_oid;
+SELECT deptype, refobjid::regrole::text AS role FROM pg_shdepend
+  WHERE classid = 'pg_largeobject'::regclass AND objid = :annotated_oid
+    AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+  ORDER BY deptype;
+SELECT description FROM pg_description
+  WHERE classoid = 'pg_largeobject'::regclass AND objoid = :annotated_oid;
+
+-- DROP ROLE must refuse for both the owner and the ACL grantee
+DROP ROLE lolor_owner;
+DROP ROLE lolor_grantee;
+
+-- Sparse object is still sparse after the round trip
+SELECT count(*) AS sparse_pages_native FROM pg_catalog.pg_largeobject
+  WHERE loid = :sparse_oid;
+
+-- Comment parking table is emptied once the comments are reinstated
+SELECT count(*) AS parked_left FROM lolor.pg_largeobject_description;
+
+-- Cleanup
+SELECT lolor.disable();
+SELECT lo_unlink(:sparse_oid);
+SELECT lo_unlink(:annotated_oid);
+SELECT lo_unlink(:empty_oid);
+SELECT lolor.enable();
+DROP EXTENSION lolor;
+DROP ROLE lolor_owner;
+DROP ROLE lolor_grantee;
+
+--
+-- A parked comment must not outlive the object it describes.  Object OIDs are
+-- only checked against pg_largeobject_metadata when a new one is generated, so
+-- a comment left behind by lo_unlink() would be handed to whatever object next
+-- took that OID.
+--
+CREATE EXTENSION lolor;
+SELECT lolor.disable();
+SELECT lo_from_bytea(0, 'has a comment') AS commented_oid \gset
+COMMENT ON LARGE OBJECT :commented_oid IS 'parked then orphaned';
+SELECT lolor.enable();
+SELECT lolor.migrate_from_native();
+SELECT count(*) AS parked FROM lolor.pg_largeobject_description
+  WHERE loid = :commented_oid;
+
+-- Unlinking must take the parked comment with it.
+SELECT lo_unlink(:commented_oid);
+SELECT count(*) AS parked_after_unlink FROM lolor.pg_largeobject_description
+  WHERE loid = :commented_oid;
+
+-- Re-create an object under the very same OID and send it back to native
+-- storage.  It must arrive with no comment.
+SELECT lo_create(:commented_oid) = :commented_oid AS oid_reused;
+SELECT lolor.migrate_to_native();
+SELECT count(*) AS inherited_comment FROM pg_description
+  WHERE classoid = 'pg_largeobject'::regclass AND objoid = :commented_oid;
+SELECT lolor.disable();
+SELECT lo_unlink(:commented_oid);
+SELECT lolor.enable();
+DROP EXTENSION lolor;
+
+--
+-- Verification helpers.
+--
+-- Start from a clean slate so the counts below do not depend on what earlier
+-- sections happened to leave behind.  The notices carry those counts, so they
+-- are suppressed for the duration.
+CREATE EXTENSION lolor;
+SET client_min_messages = warning;
+SELECT lolor.migrate_to_native() IS NOT NULL AS drained_to_native;
+SELECT lolor.disable();
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT oid FROM pg_catalog.pg_largeobject_metadata LOOP
+    PERFORM lo_unlink(r.oid);
+  END LOOP;
+END
+$$;
+SELECT lolor.enable();
+RESET client_min_messages;
+
+SELECT count(*) AS native_oids_when_empty FROM lolor.native_lo_oids();
+
+-- Both directions report zero rather than failing when there is nothing.
+SELECT lolor.migrate_to_native() AS nothing_to_move;
+SELECT lolor.migrate_from_native() AS nothing_to_take;
+
+-- digest() reports one row per object.  The OID and owner vary between runs;
+-- the page count, byte count and content digest do not.
+SELECT lo_from_bytea(0, 'digest one') AS d1 \gset
+SELECT lo_from_bytea(0, 'digest two, longer') AS d2 \gset
+SELECT npages, nbytes, digest FROM lolor.digest() ORDER BY nbytes, digest;
+SELECT lo_unlink(:d1);
+SELECT lo_unlink(:d2);
+
+-- migrate_storage() is the mechanism behind both migration functions.  Grant
+-- schema access so that the function's own privileges are what is exercised
+-- rather than USAGE on the schema.
+CREATE ROLE lolor_nosuper;
+GRANT USAGE ON SCHEMA lolor TO lolor_nosuper;
+SET ROLE lolor_nosuper;
+SELECT lolor.migrate_storage(true);
+SELECT lolor.migrate_from_native();
+SELECT lolor.migrate_to_native();
+RESET ROLE;
+REVOKE USAGE ON SCHEMA lolor FROM lolor_nosuper;
+DROP ROLE lolor_nosuper;
+
+-- Native OIDs are not node-encoded, so two nodes can hold different objects
+-- under the same OID.  Passing the peer OIDs makes that a refusal instead of
+-- silent divergence once the migration is hidden from replication.
+SELECT lolor.disable();
+SELECT lo_create(0) AS peer_oid \gset
+SELECT lolor.enable();
+SELECT lolor.migrate_from_native(peer_oids => ARRAY[:peer_oid]::oid[]);
+
+-- Security labels cannot be represented in lolor storage and cannot be
+-- reinstated without their provider, so migration refuses rather than
+-- discarding them.
+INSERT INTO pg_catalog.pg_seclabel (objoid, classoid, objsubid, provider, label)
+VALUES (:peer_oid, 'pg_catalog.pg_largeobject'::regclass, 0, 'lolor_test', 'secret');
+SELECT lolor.migrate_from_native();
+DELETE FROM pg_catalog.pg_seclabel
+ WHERE classoid = 'pg_catalog.pg_largeobject'::regclass AND provider = 'lolor_test';
+
+-- With the label gone the migration proceeds.
+SELECT lolor.migrate_from_native() AS migrated;
+SELECT lo_unlink(:peer_oid);
+DROP EXTENSION lolor;
+
+--
+-- A role can be dropped while objects that refer to it sit in lolor storage,
+-- because those objects are not in pg_shdepend.  Migrating them back would
+-- otherwise die inside shdepLockAndCheckObject() with "role N was concurrently
+-- dropped", which also blocks DROP EXTENSION.  The migration must refuse with
+-- a clear message instead, and fix_orphans() must make it possible to proceed.
+--
+CREATE EXTENSION lolor;
+CREATE ROLE lolor_dead_owner;
+CREATE ROLE lolor_dead_grantee;
+
+-- Owned by a role that is about to be dropped
+SET ROLE lolor_dead_owner;
+SELECT lo_from_bytea(0, 'orphaned owner') AS dead_owner_oid \gset
+RESET ROLE;
+
+-- Granted to a role that is about to be dropped.  ACLs can only be set while
+-- the object is in native storage, so grant there and migrate it in.
+SELECT lolor.disable();
+SELECT lo_from_bytea(0, 'orphaned grantee') AS dead_grantee_oid \gset
+GRANT SELECT ON LARGE OBJECT :dead_grantee_oid TO lolor_dead_grantee;
+SELECT lolor.enable();
+SELECT lolor.migrate_from_native();
+
+DROP ROLE lolor_dead_owner;
+DROP ROLE lolor_dead_grantee;
+
+-- Both kinds are reported, and told apart
+SELECT role_kind, count(*) FROM lolor.check_orphans() GROUP BY 1 ORDER BY 1;
+
+-- Migration refuses up front rather than failing mid-copy
+SELECT lolor.migrate_to_native();
+
+-- Repair, then the migration goes through
+SELECT lolor.fix_orphans(current_user::regrole) AS objects_repaired;
+SELECT count(*) AS orphans_left FROM lolor.check_orphans();
+SELECT lolor.migrate_to_native();
+SELECT pg_get_userbyid(lomowner) = current_user AS owner_reassigned
+  FROM pg_catalog.pg_largeobject_metadata WHERE oid = :dead_owner_oid;
+-- The dead grantee is gone from the ACL but the owner's own entry, which
+-- GRANT materialised alongside it, is kept
+SELECT count(*) FILTER (WHERE a.grantee <> 0
+                          AND a.grantee NOT IN (SELECT oid FROM pg_roles)) AS dead_entries,
+       count(*) FILTER (WHERE a.grantee = m.lomowner) AS owner_entries
+  FROM pg_catalog.pg_largeobject_metadata m, aclexplode(m.lomacl) a
+ WHERE m.oid = :dead_grantee_oid;
+
+-- Cleanup
+SELECT lolor.disable();
+SELECT lo_unlink(:dead_owner_oid);
+SELECT lo_unlink(:dead_grantee_oid);
+SELECT lolor.enable();
 DROP EXTENSION lolor;

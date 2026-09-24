@@ -217,7 +217,7 @@ SELECT lo_close(:fd);
 
 END;
 DROP EXTENSION lolor;
-NOTICE:  migrated 4 large object(s) from lolor to native storage
+NOTICE:  migrated 4 large object(s), 4 data page(s), to native storage
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
 -- Check extension upgrade
 CREATE EXTENSION lolor VERSION '1.0';
@@ -245,14 +245,14 @@ END;
 ALTER EXTENSION lolor UPDATE TO '1.3.0';
 -- Verify migration functions are available after upgrade
 SELECT lolor.migrate_to_native(); -- One LO object has been created before LOLOR
-NOTICE:  migrated 1 large object(s) from lolor to native storage
+NOTICE:  migrated 1 large object(s), 1 data page(s), to native storage
  migrate_to_native 
 -------------------
                  1
 (1 row)
 
 SELECT lolor.migrate_from_native(); -- two objects
-NOTICE:  migrated 5 large object(s) (5 data page(s)) from native to lolor storage
+NOTICE:  migrated 5 large object(s), 5 data page(s), to lolor storage
  migrate_from_native 
 ---------------------
                    5
@@ -260,14 +260,14 @@ NOTICE:  migrated 5 large object(s) (5 data page(s)) from native to lolor storag
 
 -- Repeat conversion cycle - should see the same two objects
 SELECT lolor.migrate_to_native();
-NOTICE:  migrated 5 large object(s) from lolor to native storage
+NOTICE:  migrated 5 large object(s), 5 data page(s), to native storage
  migrate_to_native 
 -------------------
                  5
 (1 row)
 
 SELECT lolor.migrate_from_native();
-NOTICE:  migrated 5 large object(s) (5 data page(s)) from native to lolor storage
+NOTICE:  migrated 5 large object(s), 5 data page(s), to lolor storage
  migrate_from_native 
 ---------------------
                    5
@@ -341,7 +341,7 @@ NOTICE:  lolor: reconnect existing client sessions; they cache large object func
 -- Check that no tails existing after the extension drop in both enabled and
 -- disabled states.
 DROP EXTENSION lolor;
-NOTICE:  migrated 6 large object(s) from lolor to native storage
+NOTICE:  migrated 6 large object(s), 6 data page(s), to native storage
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
 SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
   'lolor_lo_open');
@@ -349,9 +349,12 @@ SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
 -----+---------
 (0 rows)
 
--- Check: we can't just delete LOLOR without LO migration in disabled mode.
--- XXX: should we introduce a 'forced' flag to allow this?
+-- DROP EXTENSION while lolor is disabled.  The reverse migration works
+-- against the catalogs directly rather than through the renamed _orig
+-- functions, so the disabled state is not a special case and the objects are
+-- still rescued.
 CREATE EXTENSION lolor;
+SELECT lo_from_bytea(0, 'stored before disabling') AS disabled_drop_oid \gset
 SELECT lolor.disable();
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
  disable 
@@ -360,28 +363,24 @@ NOTICE:  lolor: reconnect existing client sessions; they cache large object func
 (1 row)
 
 DROP EXTENSION lolor;
-ERROR:  lolor must be enabled before migration to native
-SELECT extname FROM pg_extension; -- lolor is here
- extname 
----------
- plpgsql
- lolor
-(2 rows)
-
-SELECT lolor.enable();
-NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
- enable 
---------
- t
-(1 row)
-
-DROP EXTENSION lolor;
-NOTICE:  no lolor large objects to migrate
-NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+NOTICE:  migrated 1 large object(s), 1 data page(s), to native storage
 SELECT extname FROM pg_extension; -- check lolor removal
  extname 
 ---------
  plpgsql
+(1 row)
+
+-- The object was migrated to native storage, not dropped with lolor's tables
+SELECT convert_from(lo_get(:disabled_drop_oid), 'UTF8') AS survived_disabled_drop;
+ survived_disabled_drop  
+-------------------------
+ stored before disabling
+(1 row)
+
+SELECT lo_unlink(:disabled_drop_oid);
+ lo_unlink 
+-----------
+         1
 (1 row)
 
 --
@@ -400,7 +399,7 @@ SELECT count(*) AS native_lo_count FROM pg_catalog.pg_largeobject_metadata;
 -- Install lolor and migrate native LOs into lolor storage
 CREATE EXTENSION lolor;
 SELECT lolor.migrate_from_native();
-NOTICE:  migrated 9 large object(s) (9 data page(s)) from native to lolor storage
+NOTICE:  migrated 9 large object(s), 9 data page(s), to lolor storage
  migrate_from_native 
 ---------------------
                    9
@@ -455,7 +454,7 @@ END;
 SELECT lo_from_bytea(0, 'Created directly in lolor') AS lolor_direct_oid \gset
 -- Reverse migration via DROP EXTENSION
 DROP EXTENSION lolor;
-NOTICE:  migrated 10 large object(s) from lolor to native storage
+NOTICE:  migrated 10 large object(s), 10 data page(s), to native storage
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
 SELECT count(*) AS native_after_drop FROM pg_catalog.pg_largeobject_metadata;
  native_after_drop 
@@ -505,14 +504,14 @@ SELECT lo_unlink(:'lolor_direct_oid'::oid);
 
 CREATE EXTENSION lolor;
 SELECT lolor.migrate_from_native();
-NOTICE:  migrated 7 large object(s) (7 data page(s)) from native to lolor storage
+NOTICE:  migrated 7 large object(s), 7 data page(s), to lolor storage
  migrate_from_native 
 ---------------------
                    7
 (1 row)
 
 DROP EXTENSION lolor;
-NOTICE:  migrated 7 large object(s) from lolor to native storage
+NOTICE:  migrated 7 large object(s), 7 data page(s), to native storage
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
 --
 -- Manual migrate_to_native (not via DROP EXTENSION)
@@ -520,7 +519,7 @@ NOTICE:  lolor: reconnect existing client sessions; they cache large object func
 CREATE EXTENSION lolor;
 SELECT lo_from_bytea(0, 'Manual reverse test') AS manual_oid \gset
 SELECT lolor.migrate_to_native();
-NOTICE:  migrated 1 large object(s) from lolor to native storage
+NOTICE:  migrated 1 large object(s), 1 data page(s), to native storage
  migrate_to_native 
 -------------------
                  1
@@ -583,7 +582,7 @@ INSERT INTO lolor.pg_largeobject_metadata (oid, lomowner, lomacl)
   VALUES (:'conflict_oid', (SELECT oid FROM pg_roles WHERE rolname = current_user), NULL);
 -- This should fail with OID conflict
 SELECT lolor.migrate_from_native();
-ERROR:  OID conflict: some native large objects already exist in lolor storage
+ERROR:  1 large object already exists in the destination storage
 -- Cleanup: remove the conflicting row and drop cleanly
 DELETE FROM lolor.pg_largeobject_metadata WHERE oid = :'conflict_oid';
 DROP EXTENSION lolor;
@@ -623,7 +622,7 @@ NOTICE:  lolor: reconnect existing client sessions; they cache large object func
 
 -- migrate_to_native should detect the collision
 SELECT lolor.migrate_to_native();
-ERROR:  OID conflict: some lolor large objects already exist in native storage
+ERROR:  1 large object already exists in the destination storage
 -- Cleanup: remove the native duplicate, then drop cleanly
 SELECT lolor.disable();
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
@@ -646,7 +645,7 @@ NOTICE:  lolor: reconnect existing client sessions; they cache large object func
 (1 row)
 
 DROP EXTENSION lolor;
-NOTICE:  migrated 1 large object(s) from lolor to native storage
+NOTICE:  migrated 1 large object(s), 1 data page(s), to native storage
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
 -- DROP EXTENSION should be rejected when migrate_to_native has OID conflict
 CREATE EXTENSION lolor;
@@ -675,7 +674,7 @@ NOTICE:  lolor: reconnect existing client sessions; they cache large object func
 
 -- DROP EXTENSION should ERROR to prevent data loss
 DROP EXTENSION lolor;
-ERROR:  OID conflict: some lolor large objects already exist in native storage
+ERROR:  1 large object already exists in the destination storage
 -- Extension should still be installed
 SELECT extname FROM pg_extension WHERE extname = 'lolor';
  extname 
@@ -713,7 +712,7 @@ NOTICE:  lolor: reconnect existing client sessions; they cache large object func
 
 -- Now DROP should succeed
 DROP EXTENSION lolor;
-NOTICE:  migrated 1 large object(s) from lolor to native storage
+NOTICE:  migrated 1 large object(s), 1 data page(s), to native storage
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
 --
 -- lo_import() and lo_export() read and write files on the server, so core
@@ -910,7 +909,7 @@ NOTICE:  lolor: reconnect existing client sessions; they cache large object func
 (1 row)
 
 SELECT lolor.migrate_from_native();
-NOTICE:  migrated 12 large object(s) (12 data page(s)) from native to lolor storage
+NOTICE:  migrated 12 large object(s), 12 data page(s), to lolor storage
  migrate_from_native 
 ---------------------
                   12
@@ -997,7 +996,7 @@ DROP ROLE lolor_dave;
 DROP ROLE lolor_bob;
 DROP FUNCTION lolor_expect_error(text);
 DROP EXTENSION lolor;
-NOTICE:  migrated 9 large object(s) from lolor to native storage
+NOTICE:  migrated 9 large object(s), 9 data page(s), to native storage
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
 --
 -- 64-bit interface and page-boundary I/O.  lo_put(), lo_tell64() and
@@ -1364,7 +1363,7 @@ NOTICE:  lolor: reconnect existing client sessions; they cache large object func
 CREATE EXTENSION lolor;
 SELECT lo_from_bytea(0, 'rescued from drop schema') AS rescued_oid \gset
 DROP SCHEMA lolor CASCADE;
-NOTICE:  migrated 1 large object(s) from lolor to native storage
+NOTICE:  migrated 1 large object(s), 1 data page(s), to native storage
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
 NOTICE:  drop cascades to extension lolor
 SELECT count(*) AS ext_left FROM pg_extension WHERE extname = 'lolor';
@@ -1431,6 +1430,581 @@ SELECT lo_unlink(:kept_oid);
  lo_unlink 
 -----------
          1
+(1 row)
+
+DROP EXTENSION lolor;
+NOTICE:  no lolor large objects to migrate
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+--
+-- Fidelity of the storage relocation
+--
+CREATE EXTENSION lolor;
+CREATE ROLE lolor_owner;
+CREATE ROLE lolor_grantee;
+-- A sparse object: two pages holding a 10 MB logical object.  Migration must
+-- not fill the hole; the old implementation rewrote it through the LO API and
+-- materialised every intervening page.
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_create(0) AS sparse_oid \gset
+BEGIN;
+SELECT lo_open(:sparse_oid, x'60000'::int) AS fd \gset
+SELECT lowrite(:fd, 'start');
+ lowrite 
+---------
+       5
+(1 row)
+
+SELECT lo_lseek64(:fd, 10000000, 0);
+ lo_lseek64 
+------------
+   10000000
+(1 row)
+
+SELECT lowrite(:fd, 'end');
+ lowrite 
+---------
+       3
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
+(1 row)
+
+END;
+-- An object carrying owner, ACL and a comment
+SELECT lo_from_bytea(0, 'annotated object') AS annotated_oid \gset
+ALTER LARGE OBJECT :annotated_oid OWNER TO lolor_owner;
+GRANT SELECT ON LARGE OBJECT :annotated_oid TO lolor_grantee;
+COMMENT ON LARGE OBJECT :annotated_oid IS 'kept across migration';
+-- An object with no data pages at all
+SELECT lo_create(0) AS empty_oid \gset
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
+(1 row)
+
+SELECT lolor.migrate_from_native();
+NOTICE:  migrated 12 large object(s), 12 data page(s), to lolor storage
+ migrate_from_native 
+---------------------
+                  12
+(1 row)
+
+-- Sparse object keeps its exact page count (2), not 4883
+SELECT count(*) AS sparse_pages FROM lolor.pg_largeobject WHERE loid = :sparse_oid;
+ sparse_pages 
+--------------
+            2
+(1 row)
+
+SELECT lo_get(:sparse_oid) IS NOT NULL AS sparse_readable;
+ sparse_readable 
+-----------------
+ t
+(1 row)
+
+SELECT length(lo_get(:sparse_oid)) AS sparse_length;
+ sparse_length 
+---------------
+      10000003
+(1 row)
+
+SELECT length(lo_get(:empty_oid)) AS empty_length;
+ empty_length 
+--------------
+            0
+(1 row)
+
+-- Owner and ACL survive; the comment is parked for the round trip
+SELECT pg_get_userbyid(lomowner) AS owner, lomacl IS NOT NULL AS has_acl
+FROM lolor.pg_largeobject_metadata WHERE oid = :annotated_oid;
+    owner    | has_acl 
+-------------+---------
+ lolor_owner | t
+(1 row)
+
+SELECT description FROM lolor.pg_largeobject_description WHERE loid = :annotated_oid;
+      description      
+-----------------------
+ kept across migration
+(1 row)
+
+-- Native side is fully cleaned up, including shared deps and comments
+SELECT count(*) AS native_objs FROM pg_catalog.pg_largeobject_metadata;
+ native_objs 
+-------------
+           0
+(1 row)
+
+SELECT count(*) AS native_shdep FROM pg_shdepend
+  WHERE classid = 'pg_largeobject'::regclass
+    AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database());
+ native_shdep 
+--------------
+            0
+(1 row)
+
+SELECT count(*) AS native_comments FROM pg_description
+  WHERE classoid = 'pg_largeobject'::regclass;
+ native_comments 
+-----------------
+               0
+(1 row)
+
+-- Back to native storage
+SELECT lolor.migrate_to_native();
+NOTICE:  migrated 12 large object(s), 12 data page(s), to native storage
+ migrate_to_native 
+-------------------
+                12
+(1 row)
+
+-- Ownership is recorded in pg_shdepend, not merely in lomowner: a raw catalog
+-- UPDATE would leave DROP ROLE unable to see the object.
+SELECT pg_get_userbyid(lomowner) AS owner
+FROM pg_catalog.pg_largeobject_metadata WHERE oid = :annotated_oid;
+    owner    
+-------------
+ lolor_owner
+(1 row)
+
+SELECT deptype, refobjid::regrole::text AS role FROM pg_shdepend
+  WHERE classid = 'pg_largeobject'::regclass AND objid = :annotated_oid
+    AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+  ORDER BY deptype;
+ deptype |     role      
+---------+---------------
+ a       | lolor_grantee
+ o       | lolor_owner
+(2 rows)
+
+SELECT description FROM pg_description
+  WHERE classoid = 'pg_largeobject'::regclass AND objoid = :annotated_oid;
+      description      
+-----------------------
+ kept across migration
+(1 row)
+
+-- DROP ROLE must refuse for both the owner and the ACL grantee
+DROP ROLE lolor_owner;
+ERROR:  role "lolor_owner" cannot be dropped because some objects depend on it
+DROP ROLE lolor_grantee;
+ERROR:  role "lolor_grantee" cannot be dropped because some objects depend on it
+-- Sparse object is still sparse after the round trip
+SELECT count(*) AS sparse_pages_native FROM pg_catalog.pg_largeobject
+  WHERE loid = :sparse_oid;
+ sparse_pages_native 
+---------------------
+                   2
+(1 row)
+
+-- Comment parking table is emptied once the comments are reinstated
+SELECT count(*) AS parked_left FROM lolor.pg_largeobject_description;
+ parked_left 
+-------------
+           0
+(1 row)
+
+-- Cleanup
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_unlink(:sparse_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lo_unlink(:annotated_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lo_unlink(:empty_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
+(1 row)
+
+DROP EXTENSION lolor;
+NOTICE:  no lolor large objects to migrate
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+DROP ROLE lolor_owner;
+DROP ROLE lolor_grantee;
+--
+-- A parked comment must not outlive the object it describes.  Object OIDs are
+-- only checked against pg_largeobject_metadata when a new one is generated, so
+-- a comment left behind by lo_unlink() would be handed to whatever object next
+-- took that OID.
+--
+CREATE EXTENSION lolor;
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_from_bytea(0, 'has a comment') AS commented_oid \gset
+COMMENT ON LARGE OBJECT :commented_oid IS 'parked then orphaned';
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
+(1 row)
+
+SELECT lolor.migrate_from_native();
+NOTICE:  migrated 10 large object(s), 10 data page(s), to lolor storage
+ migrate_from_native 
+---------------------
+                  10
+(1 row)
+
+SELECT count(*) AS parked FROM lolor.pg_largeobject_description
+  WHERE loid = :commented_oid;
+ parked 
+--------
+      1
+(1 row)
+
+-- Unlinking must take the parked comment with it.
+SELECT lo_unlink(:commented_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT count(*) AS parked_after_unlink FROM lolor.pg_largeobject_description
+  WHERE loid = :commented_oid;
+ parked_after_unlink 
+---------------------
+                   0
+(1 row)
+
+-- Re-create an object under the very same OID and send it back to native
+-- storage.  It must arrive with no comment.
+SELECT lo_create(:commented_oid) = :commented_oid AS oid_reused;
+ oid_reused 
+------------
+ t
+(1 row)
+
+SELECT lolor.migrate_to_native();
+NOTICE:  migrated 10 large object(s), 9 data page(s), to native storage
+ migrate_to_native 
+-------------------
+                10
+(1 row)
+
+SELECT count(*) AS inherited_comment FROM pg_description
+  WHERE classoid = 'pg_largeobject'::regclass AND objoid = :commented_oid;
+ inherited_comment 
+-------------------
+                 0
+(1 row)
+
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_unlink(:commented_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
+(1 row)
+
+DROP EXTENSION lolor;
+NOTICE:  no lolor large objects to migrate
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+--
+-- Verification helpers.
+--
+-- Start from a clean slate so the counts below do not depend on what earlier
+-- sections happened to leave behind.  The notices carry those counts, so they
+-- are suppressed for the duration.
+CREATE EXTENSION lolor;
+SET client_min_messages = warning;
+SELECT lolor.migrate_to_native() IS NOT NULL AS drained_to_native;
+ drained_to_native 
+-------------------
+ t
+(1 row)
+
+SELECT lolor.disable();
+ disable 
+---------
+ t
+(1 row)
+
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT oid FROM pg_catalog.pg_largeobject_metadata LOOP
+    PERFORM lo_unlink(r.oid);
+  END LOOP;
+END
+$$;
+SELECT lolor.enable();
+ enable 
+--------
+ t
+(1 row)
+
+RESET client_min_messages;
+SELECT count(*) AS native_oids_when_empty FROM lolor.native_lo_oids();
+ native_oids_when_empty 
+------------------------
+                      0
+(1 row)
+
+-- Both directions report zero rather than failing when there is nothing.
+SELECT lolor.migrate_to_native() AS nothing_to_move;
+NOTICE:  no lolor large objects to migrate
+ nothing_to_move 
+-----------------
+               0
+(1 row)
+
+SELECT lolor.migrate_from_native() AS nothing_to_take;
+NOTICE:  no native large objects to migrate
+ nothing_to_take 
+-----------------
+               0
+(1 row)
+
+-- digest() reports one row per object.  The OID and owner vary between runs;
+-- the page count, byte count and content digest do not.
+SELECT lo_from_bytea(0, 'digest one') AS d1 \gset
+SELECT lo_from_bytea(0, 'digest two, longer') AS d2 \gset
+SELECT npages, nbytes, digest FROM lolor.digest() ORDER BY nbytes, digest;
+ npages | nbytes |              digest              
+--------+--------+----------------------------------
+      1 |     10 | be0bbea1ab8a74be81d08e575166e9e4
+      1 |     18 | ce7a8cf8a81e8ec180a8a8a224f473c6
+(2 rows)
+
+SELECT lo_unlink(:d1);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lo_unlink(:d2);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+-- migrate_storage() is the mechanism behind both migration functions.  Grant
+-- schema access so that the function's own privileges are what is exercised
+-- rather than USAGE on the schema.
+CREATE ROLE lolor_nosuper;
+GRANT USAGE ON SCHEMA lolor TO lolor_nosuper;
+SET ROLE lolor_nosuper;
+SELECT lolor.migrate_storage(true);
+ERROR:  permission denied for function migrate_storage
+SELECT lolor.migrate_from_native();
+ERROR:  permission denied for function migrate_from_native
+SELECT lolor.migrate_to_native();
+ERROR:  permission denied for function migrate_to_native
+RESET ROLE;
+REVOKE USAGE ON SCHEMA lolor FROM lolor_nosuper;
+DROP ROLE lolor_nosuper;
+-- Native OIDs are not node-encoded, so two nodes can hold different objects
+-- under the same OID.  Passing the peer OIDs makes that a refusal instead of
+-- silent divergence once the migration is hidden from replication.
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_create(0) AS peer_oid \gset
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
+(1 row)
+
+SELECT lolor.migrate_from_native(peer_oids => ARRAY[:peer_oid]::oid[]);
+ERROR:  cannot migrate: 1 OID(s) are also held natively by another node
+-- Security labels cannot be represented in lolor storage and cannot be
+-- reinstated without their provider, so migration refuses rather than
+-- discarding them.
+INSERT INTO pg_catalog.pg_seclabel (objoid, classoid, objsubid, provider, label)
+VALUES (:peer_oid, 'pg_catalog.pg_largeobject'::regclass, 0, 'lolor_test', 'secret');
+SELECT lolor.migrate_from_native();
+ERROR:  cannot migrate: 1 large object security label(s) present
+DELETE FROM pg_catalog.pg_seclabel
+ WHERE classoid = 'pg_catalog.pg_largeobject'::regclass AND provider = 'lolor_test';
+-- With the label gone the migration proceeds.
+SELECT lolor.migrate_from_native() AS migrated;
+NOTICE:  migrated 1 large object(s), 0 data page(s), to lolor storage
+ migrated 
+----------
+        1
+(1 row)
+
+SELECT lo_unlink(:peer_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+DROP EXTENSION lolor;
+NOTICE:  no lolor large objects to migrate
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+--
+-- A role can be dropped while objects that refer to it sit in lolor storage,
+-- because those objects are not in pg_shdepend.  Migrating them back would
+-- otherwise die inside shdepLockAndCheckObject() with "role N was concurrently
+-- dropped", which also blocks DROP EXTENSION.  The migration must refuse with
+-- a clear message instead, and fix_orphans() must make it possible to proceed.
+--
+CREATE EXTENSION lolor;
+CREATE ROLE lolor_dead_owner;
+CREATE ROLE lolor_dead_grantee;
+-- Owned by a role that is about to be dropped
+SET ROLE lolor_dead_owner;
+SELECT lo_from_bytea(0, 'orphaned owner') AS dead_owner_oid \gset
+RESET ROLE;
+-- Granted to a role that is about to be dropped.  ACLs can only be set while
+-- the object is in native storage, so grant there and migrate it in.
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_from_bytea(0, 'orphaned grantee') AS dead_grantee_oid \gset
+GRANT SELECT ON LARGE OBJECT :dead_grantee_oid TO lolor_dead_grantee;
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
+(1 row)
+
+SELECT lolor.migrate_from_native();
+NOTICE:  migrated 1 large object(s), 1 data page(s), to lolor storage
+ migrate_from_native 
+---------------------
+                   1
+(1 row)
+
+DROP ROLE lolor_dead_owner;
+DROP ROLE lolor_dead_grantee;
+-- Both kinds are reported, and told apart
+SELECT role_kind, count(*) FROM lolor.check_orphans() GROUP BY 1 ORDER BY 1;
+ role_kind | count 
+-----------+-------
+ grantee   |     1
+ owner     |     1
+(2 rows)
+
+-- Migration refuses up front rather than failing mid-copy
+SELECT lolor.migrate_to_native();
+ERROR:  2 large objects refer to roles that no longer exist
+-- Repair, then the migration goes through
+SELECT lolor.fix_orphans(current_user::regrole) AS objects_repaired;
+ objects_repaired 
+------------------
+                2
+(1 row)
+
+SELECT count(*) AS orphans_left FROM lolor.check_orphans();
+ orphans_left 
+--------------
+            0
+(1 row)
+
+SELECT lolor.migrate_to_native();
+NOTICE:  migrated 2 large object(s), 2 data page(s), to native storage
+ migrate_to_native 
+-------------------
+                 2
+(1 row)
+
+SELECT pg_get_userbyid(lomowner) = current_user AS owner_reassigned
+  FROM pg_catalog.pg_largeobject_metadata WHERE oid = :dead_owner_oid;
+ owner_reassigned 
+------------------
+ t
+(1 row)
+
+-- The dead grantee is gone from the ACL but the owner's own entry, which
+-- GRANT materialised alongside it, is kept
+SELECT count(*) FILTER (WHERE a.grantee <> 0
+                          AND a.grantee NOT IN (SELECT oid FROM pg_roles)) AS dead_entries,
+       count(*) FILTER (WHERE a.grantee = m.lomowner) AS owner_entries
+  FROM pg_catalog.pg_largeobject_metadata m, aclexplode(m.lomacl) a
+ WHERE m.oid = :dead_grantee_oid;
+ dead_entries | owner_entries 
+--------------+---------------
+            0 |             2
+(1 row)
+
+-- Cleanup
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+SELECT lo_unlink(:dead_owner_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lo_unlink(:dead_grantee_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
 (1 row)
 
 DROP EXTENSION lolor;
