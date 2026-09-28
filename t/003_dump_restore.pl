@@ -16,7 +16,11 @@ my ($result, $stdout, $stderr);
 
 # Setup source node with lolor extension
 $src->init;
-$src->append_conf('postgresql.conf', qq{lolor.node = 1});
+$src->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
 $src->start;
 $src->safe_psql('postgres', "CREATE EXTENSION lolor");
 
@@ -53,7 +57,11 @@ $src->stop;
 
 # Setup destination node and restore
 $dst->init;
-$dst->append_conf('postgresql.conf', qq{lolor.node = 1});
+$dst->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
 $dst->start;
 
 command_ok(

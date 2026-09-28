@@ -13,7 +13,11 @@ use Test::More;
 my $node = PostgreSQL::Test::Cluster->new('drop_paths');
 
 $node->init;
-$node->append_conf('postgresql.conf', qq{lolor.node = 1});
+$node->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
 $node->start;
 
 # DROP SCHEMA reaches the extension by dependency cascade rather than as DROP

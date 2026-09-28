@@ -14,7 +14,11 @@ my $node = PostgreSQL::Test::Cluster->new('migration');
 my ($result, $stdout, $stderr);
 
 $node->init(allows_streaming => 'logical');
-$node->append_conf('postgresql.conf', qq{lolor.node = 1});
+$node->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
 $node->start;
 $node->safe_psql('postgres', "CREATE EXTENSION lolor");
 

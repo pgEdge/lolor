@@ -14,7 +14,11 @@ my $node = PostgreSQL::Test::Cluster->new('migration_locking');
 my ($result, $stdout, $stderr);
 
 $node->init;
-$node->append_conf('postgresql.conf', qq{lolor.node = 1});
+$node->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
 $node->start;
 $node->safe_psql('postgres', "CREATE EXTENSION lolor");
 
@@ -85,8 +89,16 @@ foreach my $n ($n1, $n2)
 	$n->init;
 	$n->start;
 }
-$n1->append_conf('postgresql.conf', qq{lolor.node = 1});
-$n2->append_conf('postgresql.conf', qq{lolor.node = 2});
+$n1->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
+$n2->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 2
+});
 $n1->restart;
 $n2->restart;
 

@@ -15,7 +15,11 @@ my ($result, $stdout, $stderr);
 
 # Setup primary node with lolor extension
 $primary->init(allows_streaming => 1);
-$primary->append_conf('postgresql.conf', qq{lolor.node = 1});
+$primary->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
 $primary->start;
 $primary->safe_psql('postgres', "CREATE EXTENSION lolor");
 

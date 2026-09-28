@@ -26,7 +26,7 @@ track_commit_timestamp = on
 max_worker_processes = 32
 max_replication_slots = 32
 max_wal_senders = 32
-shared_preload_libraries = 'spock'
+shared_preload_libraries = 'spock, lolor'
 spock.conflict_resolution = 'last_update_wins'
 spock.save_resolutions = on
 _EOF_
