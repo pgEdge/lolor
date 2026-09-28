@@ -26,7 +26,7 @@ track_commit_timestamp = on
 max_worker_processes = 32
 max_replication_slots = 32
 max_wal_senders = 32
-shared_preload_libraries = 'spock, lolor'
+shared_preload_libraries = 'spock'
 spock.conflict_resolution = 'last_update_wins'
 spock.save_resolutions = on
 _EOF_
@@ -136,6 +136,13 @@ cd /tmp/lolor-build
 # and JIT bitcode is irrelevant for these functional tests.
 make USE_PGXS=1 with_llvm=no
 make USE_PGXS=1 with_llvm=no install
+
+# lolor refuses to load on demand, and the library did not exist when the
+# server above was started.  Preload it from here on; the later setting wins.
+cat >> "$PGDATA/postgresql.conf" <<_EOF_
+shared_preload_libraries = 'spock, lolor'
+_EOF_
+pg_ctl -D "$PGDATA" -l /home/pgedge/logfile.log -o "-k /tmp" -m fast -w restart
 
 psql -U admin -d demo -h /tmp -v ON_ERROR_STOP=1 <<_EOF_
 create extension lolor;
