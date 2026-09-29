@@ -318,6 +318,132 @@ SET lolor.node = 15;
 SET lolor.node = 1;
 
 --
+-- Permission enforcement.
+--
+-- Objects in lolor storage have no catalog entry, so lolor cannot use the
+-- syscache-backed owner and ACL checks and reimplements them against its own
+-- tables.  Exercise that path rather than assuming it matches core.
+--
+CREATE EXTENSION lolor;
+CREATE ROLE lolor_alice;
+CREATE ROLE lolor_bob;
+
+-- Large object error messages quote the OID, which is generated and so
+-- differs between runs.  Report the message with digits masked instead.
+CREATE FUNCTION lolor_expect_error(cmd text) RETURNS text AS $$
+BEGIN
+  EXECUTE cmd;
+  RETURN 'unexpectedly succeeded';
+EXCEPTION WHEN OTHERS THEN
+  RETURN regexp_replace(SQLERRM, '[0-9]+', 'NNN', 'g');
+END
+$$ LANGUAGE plpgsql;
+
+SET ROLE lolor_alice;
+SELECT lo_from_bytea(0, 'alice private data') AS alice_oid \gset
+SELECT convert_from(lo_get(:alice_oid), 'UTF8') AS owner_can_read;
+RESET ROLE;
+
+-- A different role gets nothing without a grant.
+SET ROLE lolor_bob;
+SELECT lolor_expect_error(format('SELECT lo_get(%s)', :alice_oid)) AS read_denied;
+SELECT lolor_expect_error(format('SELECT lo_open(%s, 262144)', :alice_oid)) AS open_denied;
+SELECT lolor_expect_error(format('SELECT lo_put(%s, 0, ''x'')', :alice_oid)) AS write_denied;
+SELECT lolor_expect_error(format('SELECT lo_unlink(%s)', :alice_oid)) AS unlink_denied;
+RESET ROLE;
+
+-- The superuser bypasses the check, as in core.
+SELECT convert_from(lo_get(:alice_oid), 'UTF8') AS superuser_can_read;
+
+-- GRANT/ALTER on a large object act on pg_largeobject_metadata, where an
+-- object in lolor storage has no row.  This limitation is documented; assert
+-- it so that a change in behaviour is noticed.
+SELECT lolor_expect_error(
+  format('GRANT SELECT ON LARGE OBJECT %s TO lolor_bob', :alice_oid)) AS grant_unsupported;
+SELECT lolor_expect_error(
+  format('ALTER LARGE OBJECT %s OWNER TO lolor_bob', :alice_oid)) AS alter_unsupported;
+
+SELECT lo_unlink(:alice_oid);
+
+--
+-- Objects in lolor storage are rows in ordinary tables and cannot participate
+-- in pg_shdepend, so DROP ROLE does not notice that a role still owns one.
+-- lolor.check_orphans() exists to make the consequence findable.
+--
+SET ROLE lolor_alice;
+SELECT lo_from_bytea(0, 'owned by a role about to vanish') AS orphan_oid \gset
+RESET ROLE;
+SELECT count(*) AS orphans_before FROM lolor.check_orphans();
+DROP ROLE lolor_alice;
+SELECT count(*) AS orphans_after FROM lolor.check_orphans();
+SELECT lo_unlink(:orphan_oid);
+SELECT count(*) AS orphans_cleared FROM lolor.check_orphans();
+
+--
+-- fix_orphans() must behave like REASSIGN OWNED: grants the dead owner made
+-- survive with the new owner as grantor, an entry the new owner already held
+-- merges into its owner entry, and only entries that still name a missing
+-- role are dropped.  ACLs can only be set in native storage, so build them
+-- there and migrate in.
+--
+CREATE ROLE lolor_dead_owner;
+CREATE ROLE lolor_carol;
+CREATE ROLE lolor_dave;
+SELECT lolor.disable();
+SET ROLE lolor_dead_owner;
+SELECT lo_from_bytea(0, 'granted to bob') AS granted_oid \gset
+GRANT SELECT ON LARGE OBJECT :granted_oid TO lolor_bob;
+SELECT lo_from_bytea(0, 'grant chain') AS chain_oid \gset
+GRANT SELECT ON LARGE OBJECT :chain_oid TO lolor_dave WITH GRANT OPTION;
+SELECT lo_from_bytea(0, 'new owner already a grantee') AS merge_oid \gset
+GRANT SELECT ON LARGE OBJECT :merge_oid TO lolor_carol WITH GRANT OPTION;
+SELECT lo_from_bytea(0, 'mixed grant options') AS mixed_oid \gset
+GRANT SELECT ON LARGE OBJECT :mixed_oid TO lolor_bob WITH GRANT OPTION;
+GRANT UPDATE ON LARGE OBJECT :mixed_oid TO lolor_bob;
+RESET ROLE;
+SET ROLE lolor_dave;
+GRANT SELECT ON LARGE OBJECT :chain_oid TO lolor_bob;
+RESET ROLE;
+SELECT lolor.enable();
+SELECT lolor.migrate_from_native();
+DROP ROLE lolor_dead_owner;
+SELECT role_kind, count(*) FROM lolor.check_orphans() GROUP BY 1 ORDER BY 1;
+SELECT lolor.fix_orphans('lolor_carol') AS objects_repaired;
+SELECT count(*) AS orphans_left FROM lolor.check_orphans();
+-- Role OIDs vary per run, so compare the rebuilt ACLs by name
+SELECT CASE m.oid WHEN :granted_oid THEN 'granted' WHEN :chain_oid THEN 'chain'
+                  WHEN :merge_oid THEN 'merge' ELSE 'mixed' END AS obj,
+       pg_get_userbyid(m.lomowner) AS owner,
+       a.grantee::regrole::text AS grantee, a.grantor::regrole::text AS grantor,
+       a.privilege_type, a.is_grantable
+  FROM lolor.pg_largeobject_metadata m, aclexplode(m.lomacl) a
+ WHERE m.oid IN (:granted_oid, :chain_oid, :merge_oid, :mixed_oid)
+ ORDER BY 1, 3, 4, 5;
+-- One entry per (grantee, grantor), as GRANT and REVOKE expect: a grant
+-- option that differs between privileges lives inside the entry
+SELECT count(*) AS objects_with_duplicate_entries
+  FROM lolor.pg_largeobject_metadata m
+ WHERE m.oid IN (:granted_oid, :chain_oid, :merge_oid, :mixed_oid)
+   AND cardinality(m.lomacl) <> (SELECT count(DISTINCT (a.grantee, a.grantor))
+                                   FROM aclexplode(m.lomacl) a);
+-- The grantee kept access and the new owner has it
+SET ROLE lolor_bob;
+SELECT convert_from(lo_get(:granted_oid), 'UTF8') AS bob_still_reads;
+RESET ROLE;
+SET ROLE lolor_carol;
+SELECT convert_from(lo_get(:chain_oid), 'UTF8') AS new_owner_reads;
+RESET ROLE;
+SELECT lo_unlink(:granted_oid);
+SELECT lo_unlink(:chain_oid);
+SELECT lo_unlink(:merge_oid);
+SELECT lo_unlink(:mixed_oid);
+DROP ROLE lolor_carol;
+DROP ROLE lolor_dave;
+DROP ROLE lolor_bob;
+DROP FUNCTION lolor_expect_error(text);
+DROP EXTENSION lolor;
+
+--
 -- 64-bit interface and page-boundary I/O.  lo_put(), lo_tell64() and
 -- lo_truncate64() had no coverage.
 --
@@ -429,7 +555,60 @@ SELECT lo_unlink(:multi_oid);
 -- Error paths.
 --
 SELECT lo_get(0);
+SELECT lo_unlink(0);
 BEGIN;
 SELECT lo_open(0, 262144);
 ROLLBACK;
+DROP EXTENSION lolor;
+
+--
+-- An unprivileged user must not be able to wedge lolor by squatting the names
+-- the state probes look for.  Matching on proname alone would make
+-- is_enabled() raise "inconsistent state" and block DROP EXTENSION.
+--
+CREATE EXTENSION lolor;
+CREATE ROLE lolor_squatter;
+GRANT CREATE ON SCHEMA public TO lolor_squatter;
+SET ROLE lolor_squatter;
+CREATE FUNCTION public.lolor_lo_open(oid, int4) RETURNS int4
+  AS 'SELECT 1' LANGUAGE sql;
+CREATE FUNCTION public.lo_close_orig(int4) RETURNS int4
+  AS 'SELECT 1' LANGUAGE sql;
+RESET ROLE;
+SELECT lolor.is_enabled() AS unaffected_by_squatting;
+DROP FUNCTION public.lolor_lo_open(oid, int4);
+DROP FUNCTION public.lo_close_orig(int4);
+REVOKE CREATE ON SCHEMA public FROM lolor_squatter;
+DROP ROLE lolor_squatter;
+DROP EXTENSION lolor;
+
+--
+-- DROP SCHEMA lolor CASCADE reaches the extension by dependency cascade rather
+-- than as DROP EXTENSION.  The cleanup trigger must still run, or the objects
+-- are destroyed and pg_catalog is left without a working lo_open().
+--
+CREATE EXTENSION lolor;
+SELECT lo_from_bytea(0, 'rescued from drop schema') AS rescued_oid \gset
+DROP SCHEMA lolor CASCADE;
+SELECT count(*) AS ext_left FROM pg_extension WHERE extname = 'lolor';
+SELECT to_regprocedure('pg_catalog.lo_open(oid,int4)') IS NOT NULL AS lo_open_restored;
+SELECT to_regprocedure('pg_catalog.lo_open_orig(oid,int4)') IS NULL AS no_orig_left;
+SELECT convert_from(lo_get(:rescued_oid), 'UTF8') AS rescued_content;
+SELECT lo_unlink(:rescued_oid);
+
+--
+-- DROP SCHEMA without CASCADE is RESTRICT and cannot remove a schema that
+-- still holds the extension's tables.  The cleanup must not run for a command
+-- that is going to be rejected, or it would migrate every large object and
+-- take the storage locks only to have the work rolled back.
+--
+CREATE EXTENSION lolor;
+SELECT lo_from_bytea(0, 'still here afterwards') AS kept_oid \gset
+DROP SCHEMA lolor;
+SELECT count(*) AS extension_still_installed
+  FROM pg_extension WHERE extname = 'lolor';
+SELECT convert_from(lo_get(:kept_oid), 'UTF8') AS object_untouched;
+SELECT count(*) AS still_in_lolor_storage
+  FROM lolor.pg_largeobject_metadata WHERE oid = :kept_oid;
+SELECT lo_unlink(:kept_oid);
 DROP EXTENSION lolor;
