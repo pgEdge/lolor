@@ -715,6 +715,78 @@ DROP EXTENSION lolor;
 NOTICE:  migrated 1 large object(s), 1 data page(s), to native storage
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
 --
+-- The drop guard is an object access hook, so it holds even when the event
+-- trigger that normally migrates the objects out does not run.
+--
+CREATE EXTENSION lolor;
+ALTER EVENT TRIGGER lo_on_drop_extension DISABLE;
+-- Enabled with nothing stored: refused because the native functions are
+-- still parked under their _orig names
+DROP EXTENSION lolor;
+ERROR:  cannot drop extension "lolor" while it is enabled
+-- Disabled with an object stored: refused on every path that reaches the
+-- extension
+SELECT lo_from_bytea(0, 'guarded by the drop hook') AS guarded_oid \gset
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+DROP EXTENSION lolor;
+ERROR:  cannot drop lolor storage while it holds 1 large object
+DROP SCHEMA lolor CASCADE;
+NOTICE:  drop cascades to extension lolor
+ERROR:  cannot drop lolor storage while it holds 1 large object
+SELECT count(*) AS extension_still_installed FROM pg_extension WHERE extname = 'lolor';
+ extension_still_installed 
+---------------------------
+                         1
+(1 row)
+
+SELECT count(*) AS still_in_lolor_storage FROM lolor.pg_largeobject_metadata;
+ still_in_lolor_storage 
+------------------------
+                      1
+(1 row)
+
+-- The escape hatch is a superuser setting and discards the objects
+BEGIN;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+SELECT count(*) AS extension_gone FROM pg_extension WHERE extname = 'lolor';
+ extension_gone 
+----------------
+              0
+(1 row)
+
+ROLLBACK;
+-- Back on the supported path: the trigger migrates the object out
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
+(1 row)
+
+DROP EXTENSION lolor;
+NOTICE:  migrated 1 large object(s), 1 data page(s), to native storage
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+SELECT convert_from(lo_get(:guarded_oid), 'UTF8') AS migrated_out_by_the_trigger;
+ migrated_out_by_the_trigger 
+-----------------------------
+ guarded by the drop hook
+(1 row)
+
+SELECT lo_unlink(:guarded_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+--
 -- lo_import() and lo_export() read and write files on the server, so core
 -- revokes EXECUTE on them from PUBLIC.  lolor replaces them by renaming the
 -- originals out of the way, and an ACL belongs to a function rather than to a

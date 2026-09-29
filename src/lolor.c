@@ -20,8 +20,12 @@
 #include "access/genam.h"
 #include "access/htup_details.h"
 #include "access/table.h"
+#include "catalog/dependency.h"
 #include "catalog/namespace.h"
+#include "catalog/objectaccess.h"
 #include "catalog/pg_extension.h"
+#include "catalog/pg_namespace.h"
+#include "catalog/pg_type.h"
 #include "commands/event_trigger.h"
 #include "commands/extension.h"
 #include "executor/spi.h"
@@ -35,14 +39,20 @@
 #include "utils/guc.h"
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
+#include "utils/syscache.h"
 
 #include "lolor.h"
 
 PG_MODULE_MAGIC;
 
 int32 lolor_node_id = 0;
+static bool lolor_allow_unsafe_drop = false;
+
+static object_access_hook_type prev_object_access_hook = NULL;
 
 void	_PG_init(void);
+static void lolor_object_access(ObjectAccessType access, Oid classId,
+								Oid objectId, int subId, void *arg);
 
 /* keep Oids of the large object catalog. */
 static Oid	LOLOR_LargeObjectRelationId = InvalidOid;
@@ -206,6 +216,18 @@ relcache_invalidate_callback(Datum arg, Oid reloid)
 void
 _PG_init(void)
 {
+	/*
+	 * The drop guard below is an object_access_hook.  A hook installed by a
+	 * library loaded on demand exists only in the backend that loaded it, and
+	 * the guard has to hold in every backend and worker, so insist on being
+	 * preloaded.  This also makes a missing or broken library fail at startup
+	 * rather than at the first lo_open().
+	 */
+	if (!process_shared_preload_libraries_in_progress)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("lolor must be loaded via \"shared_preload_libraries\"")));
+
 	DefineCustomIntVariable("lolor.node",
 							"Unique id of current node.",
 							NULL,
@@ -217,6 +239,15 @@ _PG_init(void)
 							0,
 							NULL, NULL, NULL);
 
+	DefineCustomBoolVariable("lolor.allow_unsafe_drop",
+							 "Allows dropping lolor while it is enabled or still holds large objects.",
+							 NULL,
+							 &lolor_allow_unsafe_drop,
+							 false,
+							 PGC_SUSET,
+							 0,
+							 NULL, NULL, NULL);
+
 	/* register transaction callbacks for cleanup. */
 	RegisterXactCallback(lolor_xact_callback, NULL);
 	RegisterSubXactCallback(lolor_subxact_callback, NULL);
@@ -226,6 +257,9 @@ _PG_init(void)
 	 * So, it is necessary to invalidate cache of Oids.
 	 */
 	CacheRegisterRelcacheCallback(relcache_invalidate_callback, (Datum) 0);
+
+	prev_object_access_hook = object_access_hook;
+	object_access_hook = lolor_object_access;
 }
 
 /*
@@ -260,6 +294,111 @@ lolor_extension_owner(void)
 	table_close(rel, AccessShareLock);
 
 	return owner;
+}
+
+/*
+ * lolor_storage_drop_check
+ *
+ *	Refuse to delete lolor.pg_largeobject_metadata while it holds rows.
+ *
+ *	The lolor tables are members of the extension, and members are deleted
+ *	before the extension itself, so this is the last moment at which the
+ *	contents can still be counted.
+ */
+static void
+lolor_storage_drop_check(Oid relid)
+{
+	Oid			nspoid;
+	Oid			extoid;
+	Relation	rel;
+	SysScanDesc scan;
+	int64		count = 0;
+
+	/* Fast exit for the usual case: some table that is not ours. */
+	nspoid = get_namespace_oid(EXTENSION_NAME, true);
+	if (!OidIsValid(nspoid) ||
+		get_relname_relid(LOLOR_LARGEOBJECT_METADATA, nspoid) != relid)
+		return;
+
+	/* A same-named table in a squatted schema is not ours either. */
+	extoid = get_extension_oid(EXTENSION_NAME, true);
+	if (!OidIsValid(extoid) ||
+		getExtensionOfObject(RelationRelationId, relid) != extoid)
+		return;
+
+	/* The dropper already holds AccessExclusiveLock. */
+	rel = table_open(relid, NoLock);
+	scan = systable_beginscan(rel, InvalidOid, false, NULL, 0, NULL);
+	while (HeapTupleIsValid(systable_getnext(scan)))
+		count++;
+	systable_endscan(scan);
+	table_close(rel, NoLock);
+
+	if (count > 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST),
+				 errmsg_plural("cannot drop lolor storage while it holds %lld large object",
+							   "cannot drop lolor storage while it holds %lld large objects",
+							   count, (long long) count),
+				 errhint("Run lolor.migrate_to_native() first, or set lolor.allow_unsafe_drop to discard them.")));
+}
+
+/*
+ * lolor_extension_drop_check
+ *
+ *	Refuse to delete the extension while the native large object functions
+ *	are still parked under their *_orig names: the drop would take lolor's
+ *	replacements with it and leave pg_catalog without any lo_open() at all.
+ *	The probe is the one lolor.is_enabled() uses.
+ */
+static void
+lolor_extension_drop_check(Oid extoid)
+{
+	Oid			argtypes[2] = {OIDOID, INT4OID};
+
+	if (extoid != get_extension_oid(EXTENSION_NAME, true))
+		return;
+
+	if (SearchSysCacheExists3(PROCNAMEARGSNSP,
+							  CStringGetDatum("lo_open_orig"),
+							  PointerGetDatum(buildoidvector(argtypes, 2)),
+							  ObjectIdGetDatum(PG_CATALOG_NAMESPACE)))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("cannot drop extension \"%s\" while it is enabled",
+						EXTENSION_NAME),
+				 errdetail("The native large object functions are still parked under their *_orig names."),
+				 errhint("Run lolor.disable() first.")));
+}
+
+/*
+ * lolor_object_access
+ *
+ *	Guard every path that removes lolor: DROP EXTENSION, DROP SCHEMA CASCADE,
+ *	DROP OWNED BY and anything else that reaches the extension by dependency.
+ *
+ *	The event trigger migrates the large objects out and restores the native
+ *	functions before the drop, but an event trigger can be disabled, and the
+ *	drop usually runs in a different backend from the migration, so a flag
+ *	set by the migration would not be visible to it.  Check the catalog state
+ *	at the moment of deletion instead, from whichever process performs it.
+ *	lolor.allow_unsafe_drop skips both checks.
+ */
+static void
+lolor_object_access(ObjectAccessType access, Oid classId, Oid objectId,
+					int subId, void *arg)
+{
+	if (access == OAT_DROP && !lolor_allow_unsafe_drop)
+	{
+		/* subId != 0 is a column being dropped, not the table. */
+		if (classId == RelationRelationId && subId == 0)
+			lolor_storage_drop_check(objectId);
+		else if (classId == ExtensionRelationId)
+			lolor_extension_drop_check(objectId);
+	}
+
+	if (prev_object_access_hook)
+		prev_object_access_hook(access, classId, objectId, subId, arg);
 }
 
 /*

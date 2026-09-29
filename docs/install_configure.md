@@ -14,7 +14,13 @@ make USE_PGXS=1
 make USE_PGXS=1 install
 ```
 
-After the lolor extension is installed, connect to your Postgres database and create the extension with the command:
+lolor must be loaded at server start. Add it to `shared_preload_libraries` in `postgresql.conf` and restart; `CREATE EXTENSION lolor` and every `lo_*` call refuse when the library was loaded on demand. The guard that protects large objects when the extension is dropped is an object access hook, which is only in place in every backend when the library is preloaded.
+
+```
+shared_preload_libraries = 'lolor'
+```
+
+Then connect to your Postgres database and create the extension with the command:
 
 ```
 CREATE EXTENSION lolor;
@@ -22,7 +28,7 @@ CREATE EXTENSION lolor;
 
 ## Configuring lolor
 
-You must set the `lolor.node` parameter on each node in your replication cluster before using the extension. The value can be from 1 to 2^28; the value is used to help in generation of new large object OID.
+You must set the `lolor.node` parameter on each node in your replication cluster before using the extension. The value can be from 1 to 15 (0 means unset); it is encoded in the four low bits of every large object OID lolor generates, so each node must use a different value.
 
 ```
 lolor.node = 1

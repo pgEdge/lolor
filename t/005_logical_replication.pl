@@ -16,7 +16,11 @@ my ($result, $stdout, $stderr);
 
 # Setup publisher with logical replication support
 $publisher->init(allows_streaming => 'logical');
-$publisher->append_conf('postgresql.conf', qq{lolor.node = 1});
+$publisher->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
 $publisher->start;
 $publisher->safe_psql('postgres', "CREATE EXTENSION lolor");
 
@@ -30,7 +34,11 @@ $publisher->safe_psql('postgres',
 
 # Setup subscriber with lolor extension (tables must exist before subscription)
 $subscriber->init;
-$subscriber->append_conf('postgresql.conf', qq{lolor.node = 2});
+$subscriber->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 2
+});
 $subscriber->start;
 $subscriber->safe_psql('postgres', "CREATE EXTENSION lolor");
 

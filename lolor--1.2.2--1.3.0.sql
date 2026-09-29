@@ -171,7 +171,8 @@ WHERE dbid = (SELECT oid FROM pg_catalog.pg_database
  */
 
 /*
- * Refuse while any other client session is connected to this database.
+ * Refuse unless called from a client session that is the only one connected
+ * to this database.
  *
  * Renaming the pg_catalog large object functions cannot be made atomic for
  * other backends: a rename keeps the function OID, so a session that has
@@ -184,8 +185,21 @@ WHERE dbid = (SELECT oid FROM pg_catalog.pg_database
 CREATE FUNCTION lolor._require_no_other_sessions(what text)
 RETURNS void AS $$
 DECLARE
-  n int;
+  n    int;
+  self text;
 BEGIN
+  -- A background worker, such as an apply worker executing replicated DDL,
+  -- is not a client session and must not do this at all: the change is
+  -- node-local and a refusal would leave that worker retrying forever.
+  SELECT backend_type INTO self
+  FROM pg_catalog.pg_stat_activity
+  WHERE pid = pg_backend_pid();
+
+  IF self IS DISTINCT FROM 'client backend' THEN
+    RAISE EXCEPTION 'cannot % from a %', what, coalesce(self, 'non-client process')
+      USING HINT = 'Run it from a client session connected directly to this node.';
+  END IF;
+
   SELECT count(*) INTO n
   FROM pg_catalog.pg_stat_activity
   WHERE datname = current_database()

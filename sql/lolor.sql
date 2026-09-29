@@ -289,6 +289,36 @@ SELECT lolor.enable();
 DROP EXTENSION lolor;
 
 --
+-- The drop guard is an object access hook, so it holds even when the event
+-- trigger that normally migrates the objects out does not run.
+--
+CREATE EXTENSION lolor;
+ALTER EVENT TRIGGER lo_on_drop_extension DISABLE;
+-- Enabled with nothing stored: refused because the native functions are
+-- still parked under their _orig names
+DROP EXTENSION lolor;
+-- Disabled with an object stored: refused on every path that reaches the
+-- extension
+SELECT lo_from_bytea(0, 'guarded by the drop hook') AS guarded_oid \gset
+SELECT lolor.disable();
+DROP EXTENSION lolor;
+DROP SCHEMA lolor CASCADE;
+SELECT count(*) AS extension_still_installed FROM pg_extension WHERE extname = 'lolor';
+SELECT count(*) AS still_in_lolor_storage FROM lolor.pg_largeobject_metadata;
+-- The escape hatch is a superuser setting and discards the objects
+BEGIN;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+SELECT count(*) AS extension_gone FROM pg_extension WHERE extname = 'lolor';
+ROLLBACK;
+-- Back on the supported path: the trigger migrates the object out
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+SELECT lolor.enable();
+DROP EXTENSION lolor;
+SELECT convert_from(lo_get(:guarded_oid), 'UTF8') AS migrated_out_by_the_trigger;
+SELECT lo_unlink(:guarded_oid);
+
+--
 -- lo_import() and lo_export() read and write files on the server, so core
 -- revokes EXECUTE on them from PUBLIC.  lolor replaces them by renaming the
 -- originals out of the way, and an ACL belongs to a function rather than to a

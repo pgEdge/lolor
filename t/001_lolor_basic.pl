@@ -19,32 +19,20 @@ $node->init;
 
 # ##############################################################################
 #
-# Lolor is loaded dynamically, on demand
+# lolor must be preloaded: its drop guard is an object_access_hook, which has
+# to be present in every backend.
 #
 # ##############################################################################
 
 $node->start;
-$node->safe_psql('postgres', "CREATE EXTENSION lolor");
 
-# Check
-($result, $stdout, $stderr) = $node->psql('postgres', qq(
-  SET lolor.node = 0;
-  SELECT lo_creat(-1)
-));
-like($stderr, qr/value for lolor.node is not set/, "Zero value of lolor node is treated as an unset");
+($result, $stdout, $stderr) =
+  $node->psql('postgres', "CREATE EXTENSION lolor");
+like(
+	$stderr,
+	qr/lolor must be loaded via "shared_preload_libraries"/,
+	"CREATE EXTENSION is refused when lolor was not preloaded");
 
-$result = $node->safe_psql('postgres', qq(
-  SET lolor.node = 1;
-  SELECT lo_creat(-1);
-));
-ok($result > 0, "Lolor works and produces LO IDs");
-
-$node->safe_psql('postgres', "DROP EXTENSION lolor");
-$result = $node->safe_psql('postgres', qq(
-  SET lolor.node = 0;
-  SELECT lo_creat(-1);
-));
-ok($result > 0, "Lolor has been removed and standard lo_creat routine is used");
 $node->stop();
 
 # ##############################################################################
@@ -60,7 +48,32 @@ $result = $node->safe_psql('postgres', "CREATE EXTENSION lolor");
 
 is($result, '', 'Basic check on create extension script');
 
-$result = $node->safe_psql('postgres', "DROP EXTENSION lolor");
+# Check
+($result, $stdout, $stderr) = $node->psql(
+	'postgres', qq(
+  SET lolor.node = 0;
+  SELECT lo_creat(-1)
+));
+like(
+	$stderr,
+	qr/value for lolor.node is not set/,
+	"Zero value of lolor node is treated as an unset");
+
+$result = $node->safe_psql(
+	'postgres', qq(
+  SET lolor.node = 1;
+  SELECT lo_creat(-1);
+));
+ok($result > 0, "Lolor works and produces LO IDs");
+
+$node->safe_psql('postgres', "DROP EXTENSION lolor");
+$result = $node->safe_psql(
+	'postgres', qq(
+  SET lolor.node = 0;
+  SELECT lo_creat(-1);
+));
+ok($result > 0,
+	"Lolor has been removed and standard lo_creat routine is used");
 
 $node->stop();
 
