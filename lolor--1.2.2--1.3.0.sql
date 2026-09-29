@@ -105,23 +105,34 @@ BEGIN
   UPDATE lolor.pg_largeobject_metadata m
      SET lomowner = CASE WHEN o.owner_dead THEN new_owner::oid ELSE m.lomowner END,
          -- aclexplode() yields one row per privilege.  Substitute the owner,
-         -- regroup so coinciding entries merge, then rebuild with
-         -- makeaclitem().  An empty result is NULL, meaning default
-         -- privileges.
+         -- OR the grant option per privilege where entries now coincide, and
+         -- rebuild exactly one aclitem per (grantee, grantor) through the
+         -- aclitem input syntax: an ACL must not hold two entries for the
+         -- same pair, since GRANT and REVOKE update only the first, and
+         -- makeaclitem() cannot mix grant options within one entry.  Large
+         -- objects carry only SELECT (r) and UPDATE (w).  An empty result is
+         -- NULL, meaning default privileges.
          lomacl = (
-           SELECT array_agg(pg_catalog.makeaclitem(s.grantee, s.grantor, s.privs, s.is_grantable)
-                            ORDER BY s.grantee, s.grantor, s.is_grantable)
-           FROM (SELECT CASE WHEN o.owner_dead AND a.grantee = o.old_owner
-                             THEN new_owner::oid ELSE a.grantee END AS grantee,
-                        CASE WHEN o.owner_dead AND a.grantor = o.old_owner
-                             THEN new_owner::oid ELSE a.grantor END AS grantor,
-                        a.is_grantable,
-                        string_agg(DISTINCT a.privilege_type, ',') AS privs
-                 FROM pg_catalog.aclexplode(o.lomacl) a
-                 GROUP BY 1, 2, 3) s
-           WHERE (s.grantee = 0
-                  OR EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = s.grantee))
-             AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = s.grantor))
+           SELECT array_agg(s.item ORDER BY s.grantee, s.grantor)
+           FROM (SELECT p.grantee, p.grantor,
+                        format('%s=%s/%s',
+                               CASE WHEN p.grantee = 0 THEN '' ELSE quote_ident(ge.rolname) END,
+                               string_agg(CASE p.privilege_type WHEN 'SELECT' THEN 'r' WHEN 'UPDATE' THEN 'w' END
+                                          || CASE WHEN p.grantable THEN '*' ELSE '' END,
+                                          '' ORDER BY p.privilege_type),
+                               quote_ident(gr.rolname))::pg_catalog.aclitem AS item
+                 FROM (SELECT CASE WHEN o.owner_dead AND a.grantee = o.old_owner
+                                   THEN new_owner::oid ELSE a.grantee END AS grantee,
+                              CASE WHEN o.owner_dead AND a.grantor = o.old_owner
+                                   THEN new_owner::oid ELSE a.grantor END AS grantor,
+                              a.privilege_type,
+                              bool_or(a.is_grantable) AS grantable
+                       FROM pg_catalog.aclexplode(o.lomacl) a
+                       GROUP BY 1, 2, 3) p
+                 LEFT JOIN pg_catalog.pg_roles ge ON ge.oid = p.grantee
+                 JOIN pg_catalog.pg_roles gr ON gr.oid = p.grantor
+                 WHERE p.grantee = 0 OR ge.oid IS NOT NULL
+                 GROUP BY p.grantee, p.grantor, ge.rolname, gr.rolname) s)
     FROM o
    WHERE m.oid = o.oid
      AND (o.owner_dead

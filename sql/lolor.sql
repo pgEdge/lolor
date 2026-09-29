@@ -396,7 +396,10 @@ GRANT SELECT ON LARGE OBJECT :granted_oid TO lolor_bob;
 SELECT lo_from_bytea(0, 'grant chain') AS chain_oid \gset
 GRANT SELECT ON LARGE OBJECT :chain_oid TO lolor_dave WITH GRANT OPTION;
 SELECT lo_from_bytea(0, 'new owner already a grantee') AS merge_oid \gset
-GRANT SELECT ON LARGE OBJECT :merge_oid TO lolor_carol;
+GRANT SELECT ON LARGE OBJECT :merge_oid TO lolor_carol WITH GRANT OPTION;
+SELECT lo_from_bytea(0, 'mixed grant options') AS mixed_oid \gset
+GRANT SELECT ON LARGE OBJECT :mixed_oid TO lolor_bob WITH GRANT OPTION;
+GRANT UPDATE ON LARGE OBJECT :mixed_oid TO lolor_bob;
 RESET ROLE;
 SET ROLE lolor_dave;
 GRANT SELECT ON LARGE OBJECT :chain_oid TO lolor_bob;
@@ -408,12 +411,21 @@ SELECT role_kind, count(*) FROM lolor.check_orphans() GROUP BY 1 ORDER BY 1;
 SELECT lolor.fix_orphans('lolor_carol') AS objects_repaired;
 SELECT count(*) AS orphans_left FROM lolor.check_orphans();
 -- Role OIDs vary per run, so compare the rebuilt ACLs by name
-SELECT CASE m.oid WHEN :granted_oid THEN 'granted' WHEN :chain_oid THEN 'chain' ELSE 'merge' END AS obj,
+SELECT CASE m.oid WHEN :granted_oid THEN 'granted' WHEN :chain_oid THEN 'chain'
+                  WHEN :merge_oid THEN 'merge' ELSE 'mixed' END AS obj,
        pg_get_userbyid(m.lomowner) AS owner,
-       a.grantee::regrole::text AS grantee, a.grantor::regrole::text AS grantor, a.privilege_type
+       a.grantee::regrole::text AS grantee, a.grantor::regrole::text AS grantor,
+       a.privilege_type, a.is_grantable
   FROM lolor.pg_largeobject_metadata m, aclexplode(m.lomacl) a
- WHERE m.oid IN (:granted_oid, :chain_oid, :merge_oid)
+ WHERE m.oid IN (:granted_oid, :chain_oid, :merge_oid, :mixed_oid)
  ORDER BY 1, 3, 4, 5;
+-- One entry per (grantee, grantor), as GRANT and REVOKE expect: a grant
+-- option that differs between privileges lives inside the entry
+SELECT count(*) AS objects_with_duplicate_entries
+  FROM lolor.pg_largeobject_metadata m
+ WHERE m.oid IN (:granted_oid, :chain_oid, :merge_oid, :mixed_oid)
+   AND cardinality(m.lomacl) <> (SELECT count(DISTINCT (a.grantee, a.grantor))
+                                   FROM aclexplode(m.lomacl) a);
 -- The grantee kept access and the new owner has it
 SET ROLE lolor_bob;
 SELECT convert_from(lo_get(:granted_oid), 'UTF8') AS bob_still_reads;
@@ -424,6 +436,7 @@ RESET ROLE;
 SELECT lo_unlink(:granted_oid);
 SELECT lo_unlink(:chain_oid);
 SELECT lo_unlink(:merge_oid);
+SELECT lo_unlink(:mixed_oid);
 DROP ROLE lolor_carol;
 DROP ROLE lolor_dave;
 DROP ROLE lolor_bob;
