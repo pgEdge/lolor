@@ -56,7 +56,7 @@ in place in every backend when the library is preloaded.
 shared_preload_libraries = 'lolor'
 ```
 
-You must set the `lolor.node` parameter before using the extension. The value can be from 1 to 2^28; the value is used to help in generation of new large object OID.
+You must set the `lolor.node` parameter before using the extension. The value can be from 1 to 15 (0 means unset); it is encoded in the four low bits of every large object OID lolor generates, so each node must use a different value.
 
 ```
 lolor.node = 1
