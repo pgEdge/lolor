@@ -61,7 +61,7 @@ get_lobj_table_oid(const char *table)
 }
 
 Oid
-get_LOLOR_LargeObjectRelationId()
+get_LOLOR_LargeObjectRelationId(void)
 {
 	if (!OidIsValid(LOLOR_LargeObjectRelationId))
 		LOLOR_LargeObjectRelationId = get_lobj_table_oid(LOLOR_LARGEOBJECT_CATALOG);
@@ -70,7 +70,7 @@ get_LOLOR_LargeObjectRelationId()
 }
 
 Oid
-get_LOLOR_LargeObjectLOidPNIndexId()
+get_LOLOR_LargeObjectLOidPNIndexId(void)
 {
 	if (!OidIsValid(LOLOR_LargeObjectLOidPNIndexId))
 		LOLOR_LargeObjectLOidPNIndexId = get_lobj_table_oid(LOLOR_LARGEOBJECT_PKEY);
@@ -79,7 +79,7 @@ get_LOLOR_LargeObjectLOidPNIndexId()
 }
 
 Oid
-get_LOLOR_LargeObjectMetadataRelationId()
+get_LOLOR_LargeObjectMetadataRelationId(void)
 {
 	if (!OidIsValid(LOLOR_LargeObjectMetadataRelationId))
 		LOLOR_LargeObjectMetadataRelationId = get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA);
@@ -88,7 +88,7 @@ get_LOLOR_LargeObjectMetadataRelationId()
 }
 
 Oid
-get_LOLOR_LargeObjectMetadataOidIndexId()
+get_LOLOR_LargeObjectMetadataOidIndexId(void)
 {
 	if (!OidIsValid(LOLOR_LargeObjectMetadataOidIndexId))
 		LOLOR_LargeObjectMetadataOidIndexId = get_lobj_table_oid(LOLOR_LARGEOBJECT_METADATA_PKEY);
