@@ -1,0 +1,163 @@
+#
+# Build lolor with -Werror
+#
+# Compiles lolor against every supported PostgreSQL major with warnings
+# promoted to errors.  Only the build is checked here; the Docker test
+# workflow builds lolor without -Werror, so a new warning fails this one
+# job with a clear cause instead of hiding the results of a test run.
+#
+# The matrix covers the build switches lolor's code branches on.  Switches
+# that live in PostgreSQL's pg_config.h or Makefile.global need a
+# PostgreSQL build of their own, so they form the matrix axes:
+#
+#   pgver   lolor compiles against the server headers of each major and
+#           carries PG_VERSION_NUM conditionals, so every supported major
+#           is a separate build.  The list matches the Docker test matrix
+#           in workflow.yml.
+#
+#   cc      gcc and clang produce different warning sets.  PostgreSQL is
+#           built with the same compiler, so the CFLAGS PGXS hands to lolor
+#           were probed against the compiler that receives them.
+#
+#   config  stock: plain configure (-O2), the configuration packagers use.
+#           full:  --enable-cassert, mirroring a developer build.  lolor
+#           branches on no other configure switch: variables used only
+#           inside Assert() turn into unused-variable warnings in "stock",
+#           while the Assert() bodies themselves are only compiled in
+#           "full".  Both use -O2, which enables the flow-sensitive
+#           warnings (maybe-uninitialized and friends) that an -O0 build
+#           never sees.
+#
+# lolor is built with PGXS against the installation, so it needs no
+# PostgreSQL rebuild of its own.  FSDB is lolor's only make-time switch
+# (it adds elog(DEBUG4) calls to the fsstubs entry points), so each job
+# compiles lolor twice against the one installation: plain and -DFSDB.
+#
+# lolor is a plain PGXS extension and does not include Spock headers, so
+# vanilla PostgreSQL is enough here -- neither Spock nor the Spock patches
+# are needed to compile it.
+#
+# A weekly run catches warnings that appear without a change to lolor: a
+# new PostgreSQL minor release, or a newer compiler on the runner image.
+#
+# The gcc problem matcher turns each diagnostic into an annotation, so it
+# shows up on the offending line in the PR's "Files changed" tab.  clang
+# prints diagnostics in the same format.
+#
+
+name: Build with -Werror
+run-name: Compile lolor with warnings as errors
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 22 * * 0'  # Sunday, 22:00 (UTC)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-werror-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # Explicit shell: GitHub then runs with -eo pipefail.
+    shell: bash
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        pgver: [16, 17, 18, 19]
+        cc: [gcc, clang]
+        config: [stock, full]
+
+    name: PG ${{ matrix.pgver }} ${{ matrix.cc }} ${{ matrix.config }}
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      CC: ${{ matrix.cc }}
+      PG_PREFIX: ${{ github.workspace }}/../pg-install
+      PG_SRCDIR: ${{ github.workspace }}/../postgres
+
+    steps:
+      # Checked out at the workspace root, so the relative paths the
+      # compiler prints (src/lolor_inv_api.c) match repository paths for
+      # the annotations.
+      - name: Checkout lolor
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang bison flex pkg-config \
+            libicu-dev libreadline-dev zlib1g-dev
+
+      # Same resolution as the Docker test workflow: the newest stable
+      # minor tag of the major, falling back to the newest RC and then
+      # BETA for a major that has not gone GA yet.
+      - name: Resolve PostgreSQL release tag
+        id: pgtag
+        run: |
+          PG_TAGS=$(git ls-remote --tags https://github.com/postgres/postgres.git "REL_${{ matrix.pgver }}_*" \
+            | awk -F/ '{print $NF}' | grep -v '\^{}')
+          PG_TAG=$(echo "$PG_TAGS" | grep -E "^REL_${{ matrix.pgver }}_[0-9]+$" | sort -t_ -k3,3n | tail -n 1)
+          [ -n "$PG_TAG" ] || PG_TAG=$(echo "$PG_TAGS" | grep -E "^REL_${{ matrix.pgver }}_RC[0-9]+$" | sort -V | tail -n 1)
+          [ -n "$PG_TAG" ] || PG_TAG=$(echo "$PG_TAGS" | grep -E "^REL_${{ matrix.pgver }}_BETA[0-9]+$" | sort -V | tail -n 1)
+          if [ -z "$PG_TAG" ]; then
+            echo "::error::Failed to resolve a source tag for PostgreSQL ${{ matrix.pgver }}"
+            exit 1
+          fi
+          echo "PG ${{ matrix.pgver }} resolved to $PG_TAG"
+          echo "pg_tag=$PG_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch PostgreSQL source
+        run: |
+          git init "$PG_SRCDIR"
+          git -C "$PG_SRCDIR" remote add origin \
+            https://github.com/postgres/postgres.git
+          git -C "$PG_SRCDIR" fetch --depth 1 origin "${{ steps.pgtag.outputs.pg_tag }}"
+          git -C "$PG_SRCDIR" checkout --detach FETCH_HEAD
+
+      - name: Configure, build, install PostgreSQL
+        id: pg
+        run: |
+          cd "$PG_SRCDIR"
+          CONFIGURE_OPTS=(--prefix="$PG_PREFIX")
+          if [ "${{ matrix.config }}" = "full" ]; then
+            CONFIGURE_OPTS+=(--enable-cassert)
+          fi
+          echo "configure ${CONFIGURE_OPTS[*]}"
+          ./configure "${CONFIGURE_OPTS[@]}"
+          make -j"$(nproc)" -s
+          make install -s
+          echo "$PG_PREFIX/bin" >> "$GITHUB_PATH"
+
+      - name: Register problem matcher
+        run: echo "::add-matcher::.github/gcc-problem-matcher.json"
+
+      # COPT is appended to CFLAGS by PGXS, so it reaches every object.
+      # -k keeps going after the first failing file, so a single run
+      # reports every warning.  The FSDB variant runs even when the plain
+      # build fails, as long as PostgreSQL built, so one run reports the
+      # warnings of both variants.
+      - name: Build lolor
+        if: ${{ !cancelled() && steps.pg.outcome == 'success' }}
+        run: |
+          make USE_PGXS=1 clean
+          make USE_PGXS=1 -k -j"$(nproc)" COPT=-Werror
+
+      - name: Build lolor with FSDB
+        if: ${{ !cancelled() && steps.pg.outcome == 'success' }}
+        run: |
+          make USE_PGXS=1 clean
+          make USE_PGXS=1 -k -j"$(nproc)" COPT="-Werror -DFSDB"
