@@ -29,9 +29,10 @@
 #           never sees.
 #
 # lolor is built with PGXS against the installation, so it needs no
-# PostgreSQL rebuild of its own.  FSDB is lolor's only make-time switch
-# (it adds elog(DEBUG4) calls to the fsstubs entry points), so each job
-# compiles lolor twice against the one installation: plain and -DFSDB.
+# PostgreSQL rebuild of its own.  FSDB is lolor's only compile-time
+# switch (it adds elog(DEBUG4) calls to the fsstubs entry points), so
+# each job compiles lolor twice against the one installation: plain and
+# -DFSDB=1.
 #
 # lolor is a plain PGXS extension and does not include Spock headers, so
 # vanilla PostgreSQL is enough here -- neither Spock nor the Spock patches
@@ -102,30 +103,46 @@ jobs:
             build-essential clang bison flex pkg-config \
             libicu-dev libreadline-dev zlib1g-dev
 
-      # Same resolution as the Docker test workflow: the newest stable
-      # minor tag of the major, falling back to the newest RC and then
-      # BETA for a major that has not gone GA yet.
-      - name: Resolve PostgreSQL release tag
+      # Same ladder as the Docker test workflow: the newest stable minor
+      # tag of the major, falling back to the newest RC and then BETA for
+      # a major that has not gone GA yet, and finally to the REL_x_STABLE
+      # branch for a major that has been branched but not yet tagged.
+      #
+      # --refs drops the peeled ^{} entries, so a failing git is the only
+      # thing that can fail the fetch.  Each selection instead ends in
+      # "|| true": grep exits 1 when a major has no tag of that kind,
+      # which pipefail would otherwise turn into a failed step -- that is
+      # the normal case for every pre-GA major, and the ladder exists
+      # precisely to fall through it.
+      - name: Resolve PostgreSQL source ref
         id: pgtag
         run: |
-          PG_TAGS=$(git ls-remote --tags https://github.com/postgres/postgres.git "REL_${{ matrix.pgver }}_*" \
-            | awk -F/ '{print $NF}' | grep -v '\^{}')
-          PG_TAG=$(echo "$PG_TAGS" | grep -E "^REL_${{ matrix.pgver }}_[0-9]+$" | sort -t_ -k3,3n | tail -n 1)
-          [ -n "$PG_TAG" ] || PG_TAG=$(echo "$PG_TAGS" | grep -E "^REL_${{ matrix.pgver }}_RC[0-9]+$" | sort -V | tail -n 1)
-          [ -n "$PG_TAG" ] || PG_TAG=$(echo "$PG_TAGS" | grep -E "^REL_${{ matrix.pgver }}_BETA[0-9]+$" | sort -V | tail -n 1)
-          if [ -z "$PG_TAG" ]; then
-            echo "::error::Failed to resolve a source tag for PostgreSQL ${{ matrix.pgver }}"
+          PG_TAGS=$(git ls-remote --tags --refs \
+            https://github.com/postgres/postgres.git "REL_${{ matrix.pgver }}_*" \
+            | awk -F/ '{print $NF}')
+          pick() { printf '%s\n' "$PG_TAGS" | grep -E "$1" | sort -V | tail -n 1 || true; }
+          PG_REF=$(pick "^REL_${{ matrix.pgver }}_[0-9]+$")
+          [ -n "$PG_REF" ] || PG_REF=$(pick "^REL_${{ matrix.pgver }}_RC[0-9]+$")
+          [ -n "$PG_REF" ] || PG_REF=$(pick "^REL_${{ matrix.pgver }}_BETA[0-9]+$")
+          if [ -z "$PG_REF" ] \
+             && git ls-remote --exit-code --heads \
+                  https://github.com/postgres/postgres.git \
+                  "REL_${{ matrix.pgver }}_STABLE" >/dev/null; then
+            PG_REF="REL_${{ matrix.pgver }}_STABLE"
+          fi
+          if [ -z "$PG_REF" ]; then
+            echo "::error::Failed to resolve a source ref for PostgreSQL ${{ matrix.pgver }}"
             exit 1
           fi
-          echo "PG ${{ matrix.pgver }} resolved to $PG_TAG"
-          echo "pg_tag=$PG_TAG" >> "$GITHUB_OUTPUT"
+          echo "PG ${{ matrix.pgver }} resolved to $PG_REF"
+          echo "pg_ref=$PG_REF" >> "$GITHUB_OUTPUT"
 
       - name: Fetch PostgreSQL source
         run: |
           git init "$PG_SRCDIR"
           git -C "$PG_SRCDIR" remote add origin \
             https://github.com/postgres/postgres.git
-          git -C "$PG_SRCDIR" fetch --depth 1 origin "${{ steps.pgtag.outputs.pg_tag }}"
+          git -C "$PG_SRCDIR" fetch --depth 1 origin "${{ steps.pgtag.outputs.pg_ref }}"
           git -C "$PG_SRCDIR" checkout --detach FETCH_HEAD
 
       - name: Configure, build, install PostgreSQL
@@ -160,4 +177,4 @@ jobs:
         if: ${{ !cancelled() && steps.pg.outcome == 'success' }}
         run: |
           make USE_PGXS=1 clean
-          make USE_PGXS=1 -k -j"$(nproc)" COPT="-Werror -DFSDB"
+          make USE_PGXS=1 -k -j"$(nproc)" COPT="-Werror -DFSDB=1"
