@@ -90,6 +90,7 @@ SELECT convert_from(loread(:fd, 1024), 'UTF8');
 SELECT lo_close(:fd);
 END;
 
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 -- Check extension upgrade
@@ -138,17 +139,20 @@ SELECT lolor.enable();
 
 -- Check that no tails existing after the extension drop in both enabled and
 -- disabled states.
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
   'lolor_lo_open');
 
--- DROP EXTENSION while lolor is disabled.  The reverse migration works
--- against the catalogs directly rather than through the renamed _orig
--- functions, so the disabled state is not a special case and the objects are
--- still rescued.
+-- DROP EXTENSION while lolor is disabled.  The drop is refused while the
+-- object is still in lolor storage, and migrate_to_native() works against
+-- the catalogs directly rather than through the renamed _orig functions, so
+-- the disabled state is not a special case.
 CREATE EXTENSION lolor;
 SELECT lo_from_bytea(0, 'stored before disabling') AS disabled_drop_oid \gset
 SELECT lolor.disable();
+DROP EXTENSION lolor;
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 SELECT extname FROM pg_extension; -- check lolor removal
 -- The object was migrated to native storage, not dropped with lolor's tables
@@ -191,7 +195,8 @@ END;
 -- Create an additional LO directly in lolor storage
 SELECT lo_from_bytea(0, 'Created directly in lolor') AS lolor_direct_oid \gset
 
--- Reverse migration via DROP EXTENSION
+-- Reverse migration, then DROP EXTENSION
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 SELECT count(*) AS native_after_drop FROM pg_catalog.pg_largeobject_metadata;
@@ -210,6 +215,7 @@ SELECT lo_unlink(:'lolor_direct_oid'::oid);
 
 CREATE EXTENSION lolor;
 SELECT lolor.migrate_from_native();
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 --
@@ -231,6 +237,7 @@ END;
 -- Cleanup
 SELECT lo_unlink(:'manual_oid'::oid);
 SELECT lolor.enable();
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 --
@@ -247,6 +254,7 @@ INSERT INTO lolor.pg_largeobject_metadata (oid, lomowner, lomacl)
 SELECT lolor.migrate_from_native();
 -- Cleanup: remove the conflicting row and drop cleanly
 DELETE FROM lolor.pg_largeobject_metadata WHERE oid = :'conflict_oid';
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 SELECT lo_unlink(:'conflict_oid'::oid);
 
@@ -265,18 +273,20 @@ SELECT lolor.migrate_to_native();
 SELECT lolor.disable();
 SELECT lo_unlink(:'conflict_oid2'::oid);
 SELECT lolor.enable();
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
--- DROP EXTENSION should be rejected when migrate_to_native has OID conflict
+-- A conflicting native object blocks the removal: the drop is refused while
+-- objects remain in lolor storage, and they cannot be moved out while the
+-- native duplicate exists
 CREATE EXTENSION lolor;
 SELECT lo_from_bytea(0, 'Drop conflict test') AS drop_conflict_oid \gset
--- Create a native LO with the same OID to force conflict at DROP time
 SELECT lolor.disable();
 -- Print a stable boolean rather than the generated OID, which varies per run
 SELECT lo_create(:'drop_conflict_oid') = :'drop_conflict_oid'::oid AS native_oid_honored;
 SELECT lolor.enable();
--- DROP EXTENSION should ERROR to prevent data loss
 DROP EXTENSION lolor;
+SELECT lolor.migrate_to_native();
 -- Extension should still be installed
 SELECT extname FROM pg_extension WHERE extname = 'lolor';
 -- Objects should be in place
@@ -285,12 +295,13 @@ SELECT count(*) FROM lolor.pg_largeobject;
 SELECT lolor.disable();
 SELECT lo_unlink(:'drop_conflict_oid'::oid);
 SELECT lolor.enable();
--- Now DROP should succeed
+-- Now the migration and the drop go through
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 --
 -- The drop guard is an object access hook, so it holds even when the event
--- trigger that normally migrates the objects out does not run.
+-- trigger that restores the function names does not run.
 --
 CREATE EXTENSION lolor;
 ALTER EVENT TRIGGER lo_on_drop_extension DISABLE;
@@ -311,11 +322,12 @@ SET LOCAL lolor.allow_unsafe_drop = on;
 DROP EXTENSION lolor;
 SELECT count(*) AS extension_gone FROM pg_extension WHERE extname = 'lolor';
 ROLLBACK;
--- Back on the supported path: the trigger migrates the object out
+-- Back on the supported path: migrate out by hand, then drop
 ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
 SELECT lolor.enable();
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
-SELECT convert_from(lo_get(:guarded_oid), 'UTF8') AS migrated_out_by_the_trigger;
+SELECT convert_from(lo_get(:guarded_oid), 'UTF8') AS migrated_out;
 SELECT lo_unlink(:guarded_oid);
 
 --
@@ -339,6 +351,7 @@ JOIN pg_proc o ON o.pronamespace = r.pronamespace
               AND o.proargtypes = r.proargtypes
 WHERE r.proname IN ('lo_import', 'lo_export')
 ORDER BY 1;
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 --
@@ -474,6 +487,7 @@ DROP ROLE lolor_carol;
 DROP ROLE lolor_dave;
 DROP ROLE lolor_bob;
 DROP FUNCTION lolor_expect_error(text);
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 --
@@ -592,6 +606,7 @@ SELECT lo_unlink(0);
 BEGIN;
 SELECT lo_open(0, 262144);
 ROLLBACK;
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 --
@@ -613,15 +628,19 @@ DROP FUNCTION public.lolor_lo_open(oid, int4);
 DROP FUNCTION public.lo_close_orig(int4);
 REVOKE CREATE ON SCHEMA public FROM lolor_squatter;
 DROP ROLE lolor_squatter;
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 --
 -- DROP SCHEMA lolor CASCADE reaches the extension by dependency cascade rather
--- than as DROP EXTENSION.  The cleanup trigger must still run, or the objects
--- are destroyed and pg_catalog is left without a working lo_open().
+-- than as DROP EXTENSION.  It is refused while objects remain in lolor
+-- storage, and once they are migrated out the cleanup trigger must still run,
+-- or pg_catalog is left without a working lo_open().
 --
 CREATE EXTENSION lolor;
 SELECT lo_from_bytea(0, 'rescued from drop schema') AS rescued_oid \gset
+DROP SCHEMA lolor CASCADE;
+SELECT lolor.migrate_to_native();
 DROP SCHEMA lolor CASCADE;
 SELECT count(*) AS ext_left FROM pg_extension WHERE extname = 'lolor';
 SELECT to_regprocedure('pg_catalog.lo_open(oid,int4)') IS NOT NULL AS lo_open_restored;
@@ -632,8 +651,7 @@ SELECT lo_unlink(:rescued_oid);
 --
 -- DROP SCHEMA without CASCADE is RESTRICT and cannot remove a schema that
 -- still holds the extension's tables.  The cleanup must not run for a command
--- that is going to be rejected, or it would migrate every large object and
--- take the storage locks only to have the work rolled back.
+-- that is going to be rejected.
 --
 CREATE EXTENSION lolor;
 SELECT lo_from_bytea(0, 'still here afterwards') AS kept_oid \gset
@@ -644,6 +662,7 @@ SELECT convert_from(lo_get(:kept_oid), 'UTF8') AS object_untouched;
 SELECT count(*) AS still_in_lolor_storage
   FROM lolor.pg_largeobject_metadata WHERE oid = :kept_oid;
 SELECT lo_unlink(:kept_oid);
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 --
@@ -728,6 +747,7 @@ SELECT lo_unlink(:sparse_oid);
 SELECT lo_unlink(:annotated_oid);
 SELECT lo_unlink(:empty_oid);
 SELECT lolor.enable();
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 DROP ROLE lolor_owner;
 DROP ROLE lolor_grantee;
@@ -761,6 +781,7 @@ SELECT count(*) AS inherited_comment FROM pg_description
 SELECT lolor.disable();
 SELECT lo_unlink(:commented_oid);
 SELECT lolor.enable();
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 --
@@ -831,6 +852,7 @@ DELETE FROM pg_catalog.pg_seclabel
 -- With the label gone the migration proceeds.
 SELECT lolor.migrate_from_native() AS migrated;
 SELECT lo_unlink(:peer_oid);
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
 
 --
@@ -885,4 +907,5 @@ SELECT lolor.disable();
 SELECT lo_unlink(:dead_owner_oid);
 SELECT lo_unlink(:dead_grantee_oid);
 SELECT lolor.enable();
+SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;

@@ -66,6 +66,8 @@ $result = $node->safe_psql(
 ));
 ok($result > 0, "Lolor works and produces LO IDs");
 
+# The drop is refused while lolor storage holds objects
+$node->safe_psql('postgres', "SELECT lolor.migrate_to_native()");
 $node->safe_psql('postgres', "DROP EXTENSION lolor");
 $result = $node->safe_psql(
 	'postgres', qq(

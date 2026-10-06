@@ -1,4 +1,4 @@
-# Check that the drop cleanup runs for every spelling of the drop
+# Check the drop guard and the cleanup for every spelling of the drop
 #
 # Copyright (c) 2022-2026, pgEdge, Inc.
 #
@@ -21,14 +21,29 @@ lolor.node = 1
 $node->start;
 
 # DROP SCHEMA reaches the extension by dependency cascade rather than as DROP
-# EXTENSION.  The cleanup has to run anyway, or the large objects are destroyed
-# along with the lolor tables and pg_catalog is left without a working
-# lo_open().
+# EXTENSION.  It must be refused while objects remain in lolor storage, and
+# once they are migrated out the cleanup has to run anyway, or pg_catalog is
+# left without a working lo_open().
 
 $node->safe_psql('postgres', "CREATE EXTENSION lolor");
 my $rescued = $node->safe_psql('postgres',
 	"SELECT lo_from_bytea(0, 'rescued from drop schema')");
 
+my ($result, $stdout, $stderr) =
+  $node->psql('postgres', "DROP SCHEMA lolor CASCADE");
+isnt($result, 0, "DROP SCHEMA CASCADE is refused while objects remain");
+like(
+	$stderr,
+	qr/cannot drop lolor storage while it holds 1 large object/,
+	"the refusal names the storage");
+is( $node->safe_psql(
+		'postgres',
+		"SELECT count(*) FROM lolor.pg_largeobject_metadata WHERE oid = $rescued"
+	),
+	'1',
+	"the object is untouched");
+
+$node->safe_psql('postgres', "SELECT lolor.migrate_to_native()");
 $node->safe_psql('postgres', "DROP SCHEMA lolor CASCADE");
 
 is( $node->safe_psql(
@@ -53,7 +68,7 @@ is( $node->safe_psql(
 is( $node->safe_psql(
 		'postgres', "SELECT convert_from(lo_get($rescued), 'UTF8')"),
 	'rescued from drop schema',
-	"the large object was migrated out rather than dropped with the schema");
+	"the large object survived in native storage");
 
 $node->safe_psql('postgres', "SELECT lo_unlink($rescued)");
 
@@ -70,6 +85,15 @@ $node->safe_psql(
 my $owned = $node->safe_psql('postgres',
 	"SELECT lo_from_bytea(0, 'rescued from drop owned')");
 
+($result, $stdout, $stderr) =
+  $node->psql('postgres', "DROP OWNED BY lolor_ext_owner");
+isnt($result, 0, "DROP OWNED BY is refused while objects remain");
+like(
+	$stderr,
+	qr/cannot drop lolor storage while it holds 1 large object/,
+	"the refusal names the storage");
+
+$node->safe_psql('postgres', "SELECT lolor.migrate_to_native()");
 $node->safe_psql('postgres', "DROP OWNED BY lolor_ext_owner");
 
 is( $node->safe_psql(
@@ -87,7 +111,7 @@ is( $node->safe_psql(
 is( $node->safe_psql(
 		'postgres', "SELECT convert_from(lo_get($owned), 'UTF8')"),
 	'rescued from drop owned',
-	"the large object was migrated out rather than dropped with the role");
+	"the large object survived in native storage");
 
 # enable() and disable() rename functions in pg_catalog.  A rename keeps the
 # OID, so a session that has already resolved lo_open() keeps calling the
@@ -98,7 +122,7 @@ $node->safe_psql('postgres', "CREATE EXTENSION lolor");
 my $other = $node->background_psql('postgres');
 $other->query_safe("SELECT 1");
 
-my ($result, $stdout, $stderr) =
+($result, $stdout, $stderr) =
   $node->psql('postgres', "SELECT lolor.disable()");
 isnt($result, 0, "disable() refuses while another session is connected");
 like(

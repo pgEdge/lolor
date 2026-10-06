@@ -474,27 +474,21 @@ lolor_is_being_dropped(Node *parsetree)
 /*
  * lolor_on_drop_extension
  *
- * 	In order to be a drop-in replacement for the PostgreSQL built
- * 	in large object access functions, we must replace them with
- * 	our own ones. We do that in the extension's install script
- * 	by renaming the build-in ones to <funcname>_orig and then
- * 	creating our versions of them. The PostgreSQL system has no
- * 	mechanism to invoke a cleanup or uninstall script on DROP
- * 	EXTENSION. We therefore must do the cleanup in an event trigger.
- *	However only C-Language event triggers that fire on
- *	ddl_command_start have access to the list of object that get
- *	dropped.
+ *	The install script replaces the pg_catalog large object functions by
+ *	renaming the built-in ones to <funcname>_orig and creating ours under
+ *	the original names.  PostgreSQL has no uninstall script, so the renames
+ *	are undone here, from an event trigger on ddl_command_start, which is
+ *	the only kind that still sees the command before anything is dropped.
  *
- *	We cannot drop our own functions here as the dependencies of
- *	the extension itself won't allow that. Likewise we cannot
- *	drop the original PostgreSQL functions because the PostgreSQL
- *	system depends on them. But we can get around that with
- *	renaming (which makes no sense).
+ *	Only the function names are restored.  Objects still in lolor storage
+ *	are not migrated here: moving data from inside a DROP is fragile, and
+ *	the object access hook refuses the drop while any remain, so the user
+ *	runs lolor.migrate_to_native() first.
  */
 Datum
 lolor_on_drop_extension(PG_FUNCTION_ARGS)
 {
-	EventTriggerData   *trigdata;
+	EventTriggerData *trigdata;
 
 	/* Make sure we are called as an event trigger */
 	if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
@@ -514,47 +508,10 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	if (!lolor_is_being_dropped(trigdata->parsetree))
 		PG_RETURN_NULL();
 
-	/*
-	 * The lolor extension is going away.
-	 *
-	 * First, migrate any large objects stored in lolor tables back to
-	 * native PostgreSQL storage.  This must happen while lolor is still
-	 * enabled so the _orig functions (native LO API) are available.
-	 * The event trigger fires on ddl_command_start, so lolor tables
-	 * still exist and are readable at this point.
-	 *
-	 * Then rename our replacement functions out of the way and restore
-	 * the original PostgreSQL function names.  The drop itself will then
-	 * remove the lolor schema and its objects.
-	 *
-	 * Guard the migrate_to_native() call with a pg_proc check so that
-	 * upgrades from versions < 1.3.0 (where the function does not exist)
-	 * do not fail.
-	 */
 	SPI_connect();
-
-	if (SPI_execute("SELECT 1 FROM pg_proc p "
-					 "JOIN pg_namespace n ON n.oid = p.pronamespace "
-					 "WHERE n.nspname = 'lolor' "
-					 "AND p.proname = 'migrate_to_native'",
-					 true, 1) == SPI_OK_SELECT &&
-		SPI_processed > 0)
-	{
-		/*
-		 * If migrate_to_native() fails (e.g. OID conflict), the ERROR
-		 * propagates and aborts the drop.  This is intentional: losing large
-		 * objects silently is worse than a failed DROP.  The user must
-		 * resolve the conflict and retry.
-		 */
-		if (SPI_execute("SELECT lolor.migrate_to_native()", false, 0) != SPI_OK_SELECT)
-			ereport(ERROR,
-					(errmsg("lolor: failed to migrate large objects back to native storage")));
-	}
-
 	SPI_execute("SELECT CASE WHEN lolor.is_enabled() "
 				"THEN lolor.disable() ELSE true END",
 				false, 0);
-
 	SPI_finish();
 
 	PG_RETURN_NULL();
