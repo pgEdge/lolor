@@ -63,8 +63,10 @@
 
 #include "lolor.h"
 
-/* define this to enable debug logging */
+/* build with -DFSDB=1 to enable debug logging */
+#ifndef FSDB
 #define FSDB 0
+#endif
 /* chunk size for lo_import/lo_export transfers */
 #define BUFSIZE			8192
 
@@ -129,7 +131,7 @@ lolor_lo_open(PG_FUNCTION_ARGS)
 	LargeObjectDesc *lobjDesc;
 	int			fd;
 
-#ifdef FSDB
+#if FSDB
 	elog(DEBUG4, "lo_open(%u,%d)", lobjId, mode);
 #endif
 
@@ -170,7 +172,7 @@ lolor_lo_close(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("invalid large-object descriptor: %d", fd)));
 
-#ifdef FSDB
+#if FSDB
 	elog(DEBUG4, "lo_close(%d)", fd);
 #endif
 
