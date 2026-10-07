@@ -71,6 +71,8 @@ install -p -m 0644 %{_builddir}/%{pname}-%{version}/%{pname}-sbom.json.asc %{bui
 %endif
 
 %changelog
+* Wed Oct 07 2026 Asif Rehman <asifr@pgedge.com> - 1.2.3
+- Update lolor package to 1.2.3
 * Thu Dec 18 2025 Muhammad Aqeel <muhammad.aqeel@pgedge.com> - 1.2.2
 - Update lolor package to 1.2.2
 * Thu Sep 25 2025 Muhammad Aqeel <muhammad.aqeel@pgedge.com> - 1.2.1

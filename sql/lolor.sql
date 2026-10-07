@@ -44,6 +44,7 @@ SELECT lo_open(:loid, x'60000'::int) AS fd \gset
 SELECT lowrite(:fd, 'Example large object');
 END;
 ALTER EXTENSION lolor UPDATE TO '1.2.2';
+ALTER EXTENSION lolor UPDATE TO '1.2.3';
 BEGIN;
 SELECT lo_open(:loid, 262144) AS fd \gset
 SELECT convert_from(loread(:fd, 1024), 'UTF8');

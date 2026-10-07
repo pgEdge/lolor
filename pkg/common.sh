@@ -9,11 +9,11 @@ export PG_VERSION="${PG_VERSION:-17}"
 export PG_MAJOR_VERSION="$(echo "$PG_VERSION" | cut -d. -f1)"
 
 export PG_LOLOR_REPO="https://github.com/pgEdge/lolor.git"
-export LOLOR_BRANCH="${COMPONENT_BRANCH:-v1.3.0}"
+export LOLOR_BRANCH="${COMPONENT_BRANCH:-v1.2.3}"
 
-# Upstream version, suffix-stripped (e.g. 1.3.0). Names the source tarball's
+# Upstream version, suffix-stripped (e.g. 1.2.3). Names the source tarball's
 # internal directory and the RPM Version.
-export LOLOR_VERSION="${COMPONENT_VERSION:-1.3.0}"
+export LOLOR_VERSION="${COMPONENT_VERSION:-1.2.3}"
 export LOLOR_BUILDNUM=${COMPONENT_BUILDNUM:-1}
 
 export REPO_TYPE="${REPO_TYPE:-daily}"

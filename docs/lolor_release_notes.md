@@ -1,5 +1,11 @@
 # lolor Release Notes
 
+## lolor 1.2.3
+
+* Add support for PostgreSQL 19
+* Add in-repo release workflow and RPM/DEB packaging
+* Improve CI: build the test cluster from source, add PostgreSQL 19 to the test matrix, and bound test run time
+
 ## lolor 1.2.2
 
 * Fix lolor upgrades
