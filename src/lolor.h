@@ -20,6 +20,8 @@
 #define LOLOR_LARGEOBJECT_PKEY			"pg_largeobject_pkey"
 #define LOLOR_LARGEOBJECT_METADATA		"pg_largeobject_metadata"
 #define LOLOR_LARGEOBJECT_METADATA_PKEY	"pg_largeobject_metadata_pkey"
+#define LOLOR_LARGEOBJECT_DESCRIPTION	"pg_largeobject_description"
+#define LOLOR_LARGEOBJECT_DESCRIPTION_PKEY "pg_largeobject_description_pkey"
 
 /*
  * Layout of a lolor-assigned large object OID: the low LOLOR_NODEID_BITS hold
@@ -38,6 +40,9 @@ extern Oid get_LOLOR_LargeObjectRelationId(void);
 extern Oid	get_LOLOR_LargeObjectLOidPNIndexId(void);
 extern Oid	get_LOLOR_LargeObjectMetadataRelationId(void);
 extern Oid	get_LOLOR_LargeObjectMetadataOidIndexId(void);
+extern Oid	get_LOLOR_LargeObjectDescriptionRelationId(void);
+extern Oid	get_LOLOR_LargeObjectDescriptionIndexId(void);
+extern Oid	get_LOLOR_LargeObjectDescriptionRelationIdIfExists(void);
 
 /* lolor_largeobject.c */
 extern Oid	LOLOR_LargeObjectCreate(Oid loid);
@@ -97,5 +102,8 @@ extern Datum lolor_lo_from_bytea(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_get(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_get_fragment(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_put(PG_FUNCTION_ARGS);
+
+/* lolor_migrate.c */
+extern Datum lolor_migrate_storage(PG_FUNCTION_ARGS);
 
 #endif							/* LOLOR_LARGEOBJECT_H */
