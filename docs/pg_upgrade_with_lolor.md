@@ -4,6 +4,8 @@ The `pg_upgrade` utility is used for upgrading Postgres versions.
 
 You can use `pg_upgrade` with the `lolor` extension installed provided that you are using lolor version 1.2.2 or later. If you are using an older version of lolor, you will need to upgrade the extension first.
 
+Both clusters must list `lolor` in `shared_preload_libraries`; the new cluster refuses `lo_*` calls, and therefore the restore of the extension, without it.
+
 Before running `pg_upgrade`, you must disable `lolor`. After executing pg_upgrade, you can enable lolor.  Use `psql` or another client to disable lolor:
 
 ```
@@ -25,3 +27,9 @@ Then, use psql to enable `lolor`:
 ```
 db1_18=# SELECT lolor.enable();
 ```
+
+Reconnect any client sessions afterwards. `lolor.enable()` and
+`lolor.disable()` change which function OID owns each `pg_catalog.lo_*` name,
+and libpq resolves those OIDs once per connection and caches them for the life
+of the connection. A session that used a large object before the switch would
+otherwise keep calling the previous implementation.
