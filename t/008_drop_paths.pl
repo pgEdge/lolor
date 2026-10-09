@@ -130,7 +130,26 @@ like(
 	qr/while other sessions are connected to the database/,
 	"the refusal says why");
 
+# Dropping the extension renames the functions back too, so it is refused
+# under the same condition, and says so under its own name.
+($result, $stdout, $stderr) =
+  $node->psql('postgres', "DROP EXTENSION lolor");
+isnt($result, 0, "the drop refuses while another session is connected");
+like(
+	$stderr,
+	qr/cannot drop the lolor extension while other sessions are connected/,
+	"and the refusal names the drop");
+
 $other->quit;
+# The backend exits after the client has gone; a disable() issued at once
+# could still count it.
+$node->poll_query_until(
+	'postgres', qq(
+	SELECT count(*) = 0 FROM pg_stat_activity
+	 WHERE datname = current_database()
+	   AND backend_type = 'client backend'
+	   AND pid <> pg_backend_pid()))
+  or die "the other session's backend did not exit";
 is($node->safe_psql('postgres', "SELECT lolor.disable()"),
 	't', "disable() works once the other session is gone");
 is($node->safe_psql('postgres', "SELECT lolor.enable()"),

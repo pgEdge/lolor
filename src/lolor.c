@@ -460,6 +460,28 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 
 	SPI_connect();
+	/*
+	 * disable() renames the native functions back.  That has the same
+	 * requirements whether the user calls it or the drop does: no other
+	 * session may be connected, because a renamed function keeps its OID and
+	 * other sessions keep calling the previous implementation, and it has to
+	 * run from a client session.  Check them here first, under the drop's own
+	 * name, so that the refusal says what was refused.  A disabled lolor
+	 * renames nothing, so the check only applies while it is enabled.  The
+	 * helper exists from 1.3.0; dropping an older installed version runs that
+	 * version's disable(), which has no such requirement.
+	 */
+	if (SPI_execute("SELECT 1 FROM pg_proc p "
+					"JOIN pg_namespace n ON n.oid = p.pronamespace "
+					"WHERE n.nspname = 'lolor' "
+					"AND p.proname = '_require_no_other_sessions'",
+					true, 1) == SPI_OK_SELECT &&
+		SPI_processed > 0)
+		SPI_execute("SELECT CASE WHEN lolor.is_enabled() THEN "
+					"lolor._require_no_other_sessions("
+					"'drop the lolor extension') END",
+					false, 0);
+
 	SPI_execute("SELECT CASE WHEN lolor.is_enabled() "
 				"THEN lolor.disable() ELSE true END",
 				false, 0);

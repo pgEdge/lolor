@@ -14,7 +14,7 @@ make USE_PGXS=1
 make USE_PGXS=1 install
 ```
 
-lolor must be loaded at server start. Add it to `shared_preload_libraries` in `postgresql.conf` and restart; `CREATE EXTENSION lolor` and every `lo_*` call refuse when the library was loaded on demand. The guard that protects large objects when the extension is dropped is an object access hook, which is only in place in every backend when the library is preloaded.
+lolor must be loaded at server start. Add it to `shared_preload_libraries` in `postgresql.conf` and restart; `CREATE EXTENSION lolor`, `LOAD 'lolor'` and any call that reaches one of lolor's functions fail with `lolor must be loaded via "shared_preload_libraries"` when the library was loaded on demand; the native `pg_catalog.lo_*` functions are not affected while lolor is not installed or is disabled. The guard that protects large objects when the extension is dropped is an object access hook, which is only in place in every backend when the library is preloaded.
 
 ```
 shared_preload_libraries = 'lolor'
