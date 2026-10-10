@@ -22,6 +22,12 @@
 * Expanded test coverage: TAP tests for dump/restore, streaming and logical replication, standby promotion and the drop paths; regression tests for `lo_lseek`, `lo_tell`, `lo_truncate`, permission enforcement and the orphan helpers. The regression suite now runs in a temporary instance that preloads lolor (`make installcheck`), since the preload requirement means it cannot run against an arbitrary server.
 * Security hardening: addressed Codacy/Flawfinder warnings.
 
+## lolor 1.2.3
+
+* Add support for PostgreSQL 19
+* Add in-repo release workflow and RPM/DEB packaging
+* Improve CI: build the test cluster from source, add PostgreSQL 19 to the test matrix, and bound test run time
+
 ## lolor 1.2.2
 
 * Fix lolor upgrades

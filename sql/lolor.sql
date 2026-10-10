@@ -106,7 +106,11 @@ BEGIN;
 SELECT lo_open(:loid, 262144) AS fd \gset
 SELECT convert_from(loread(:fd, 1024), 'UTF8');
 END;
+-- 1.2.3 is the released version; 1.3.0 is reached from it
+ALTER EXTENSION lolor UPDATE TO '1.2.3';
+SELECT extversion FROM pg_extension WHERE extname = 'lolor';
 ALTER EXTENSION lolor UPDATE TO '1.3.0';
+SELECT extversion FROM pg_extension WHERE extname = 'lolor';
 -- Verify migration functions are available after upgrade
 SELECT lolor.migrate_to_native(); -- One LO object has been created before LOLOR
 SELECT lolor.migrate_from_native(); -- two objects
