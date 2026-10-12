@@ -235,7 +235,7 @@ SELECT lo_unlink(:loid);
 (1 row)
 
 DROP EXTENSION lolor;
-NOTICE:  migrated 4 large object(s) from lolor to native storage
+NOTICE:  migrated 1 large object(s) from lolor to native storage
 -- Check extension upgrade
 CREATE EXTENSION lolor VERSION '1.0';
 SELECT lo_creat(-1) AS loid \gset
@@ -269,25 +269,25 @@ NOTICE:  migrated 1 large object(s) from lolor to native storage
 (1 row)
 
 SELECT lolor.migrate_from_native(); -- two objects
-NOTICE:  migrated 5 large object(s) (5 data page(s)) from native to lolor storage
+NOTICE:  migrated 2 large object(s) (2 data page(s)) from native to lolor storage
  migrate_from_native 
 ---------------------
-                   5
+                   2
 (1 row)
 
 -- Repeat conversion cycle - should see the same two objects
 SELECT lolor.migrate_to_native();
-NOTICE:  migrated 5 large object(s) from lolor to native storage
+NOTICE:  migrated 2 large object(s) from lolor to native storage
  migrate_to_native 
 -------------------
-                 5
+                 2
 (1 row)
 
 SELECT lolor.migrate_from_native();
-NOTICE:  migrated 5 large object(s) (5 data page(s)) from native to lolor storage
+NOTICE:  migrated 2 large object(s) (2 data page(s)) from native to lolor storage
  migrate_from_native 
 ---------------------
-                   5
+                   2
 (1 row)
 
 --
@@ -373,7 +373,7 @@ SELECT lolor.enable();
 -- Check that no tails existing after the extension drop in both enabled and
 -- disabled states.
 DROP EXTENSION lolor;
-NOTICE:  migrated 6 large object(s) from lolor to native storage
+NOTICE:  migrated 3 large object(s) from lolor to native storage
 SELECT oid, proname FROM pg_proc WHERE proname IN ('lo_open_orig',
   'lolor_lo_open');
  oid | proname 
@@ -422,16 +422,16 @@ SELECT lo_from_bytea(0, 'Native object number two') AS native_oid2 \gset
 SELECT count(*) AS native_lo_count FROM pg_catalog.pg_largeobject_metadata;
  native_lo_count 
 -----------------
-               9
+               6
 (1 row)
 
 -- Install lolor and migrate native LOs into lolor storage
 CREATE EXTENSION lolor;
 SELECT lolor.migrate_from_native();
-NOTICE:  migrated 9 large object(s) (9 data page(s)) from native to lolor storage
+NOTICE:  migrated 6 large object(s) (6 data page(s)) from native to lolor storage
  migrate_from_native 
 ---------------------
-                   9
+                   6
 (1 row)
 
 -- After forward migration: expect 0 native objects
@@ -444,7 +444,7 @@ SELECT count(*) AS native_after_migrate FROM pg_catalog.pg_largeobject_metadata;
 SELECT count(*) AS lolor_after_migrate FROM lolor.pg_largeobject_metadata;
  lolor_after_migrate 
 ---------------------
-                   9
+                   6
 (1 row)
 
 -- Data integrity: expect "Native object number one"
@@ -483,11 +483,11 @@ END;
 SELECT lo_from_bytea(0, 'Created directly in lolor') AS lolor_direct_oid \gset
 -- Reverse migration via DROP EXTENSION
 DROP EXTENSION lolor;
-NOTICE:  migrated 10 large object(s) from lolor to native storage
+NOTICE:  migrated 7 large object(s) from lolor to native storage
 SELECT count(*) AS native_after_drop FROM pg_catalog.pg_largeobject_metadata;
  native_after_drop 
 -------------------
-                10
+                 7
 (1 row)
 
 -- After DROP: expect "Native object number one"
@@ -532,14 +532,14 @@ SELECT lo_unlink(:'lolor_direct_oid'::oid);
 
 CREATE EXTENSION lolor;
 SELECT lolor.migrate_from_native();
-NOTICE:  migrated 7 large object(s) (7 data page(s)) from native to lolor storage
+NOTICE:  migrated 4 large object(s) (4 data page(s)) from native to lolor storage
  migrate_from_native 
 ---------------------
-                   7
+                   4
 (1 row)
 
 DROP EXTENSION lolor;
-NOTICE:  migrated 7 large object(s) from lolor to native storage
+NOTICE:  migrated 4 large object(s) from lolor to native storage
 --
 -- Manual migrate_to_native (not via DROP EXTENSION)
 --
@@ -555,7 +555,7 @@ NOTICE:  migrated 1 large object(s) from lolor to native storage
 SELECT count(*) AS native_after_manual FROM pg_catalog.pg_largeobject_metadata;
  native_after_manual 
 ---------------------
-                   8
+                   5
 (1 row)
 
 SELECT count(*) AS lolor_after_manual FROM lolor.pg_largeobject_metadata;
@@ -997,9 +997,104 @@ SELECT lowrite(:fd, '') AS empty_write;
  empty_write 
 -------------
            0
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
+(1 row)
+
+END;
+SELECT length(lo_get(:seek_oid)) AS unchanged_length;
+ unchanged_length 
+------------------
+               16
+(1 row)
+
+-- lo_get with a fragment length beyond the end is clamped, not an error.
+SELECT convert_from(lo_get(:seek_oid, 10, 1000), 'UTF8') AS clamped_fragment;
+ clamped_fragment 
+------------------
+ abcdef
+(1 row)
+
+SELECT lo_unlink(:seek_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+--
+-- Reading a multi-page object back in chunks that do not align with the page
+-- size exercises the page-assembly path in lolor_inv_read().
+--
+SELECT lo_from_bytea(0, repeat('abcdefgh', (:loblksize * 3 / 8))::bytea) AS multi_oid \gset
+SELECT length(lo_get(:multi_oid)) = :loblksize * 3 AS three_pages_written;
+ three_pages_written 
+---------------------
+ t
+(1 row)
+
+SELECT count(*) AS page_rows FROM lolor.pg_largeobject WHERE loid = :multi_oid;
+ page_rows 
+-----------
+         3
+(1 row)
+
+BEGIN;
+SELECT lo_open(:multi_oid, 262144) AS fd \gset
+SELECT length(loread(:fd, 1000)) AS chunk1;
+ chunk1 
+--------
+   1000
+(1 row)
+
+SELECT length(loread(:fd, 5000)) AS chunk2;
+ chunk2 
+--------
+   5000
+(1 row)
+
+SELECT length(loread(:fd, 100000)) AS chunk_rest;
+ chunk_rest 
+------------
+        144
+(1 row)
+
+SELECT lo_close(:fd);
+ lo_close 
+----------
+        0
+(1 row)
+
+END;
+SELECT md5(lo_get(:multi_oid)) = md5(repeat('abcdefgh', (:loblksize * 3 / 8))::bytea)
+  AS content_round_trips;
+ content_round_trips 
+---------------------
+ t
+(1 row)
+
+SELECT lo_unlink(:multi_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+--
+-- Error paths.
+--
+SELECT lo_get(0);
+ERROR:  large object 0 does not exist
+BEGIN;
+SELECT lo_open(0, 262144);
+ERROR:  large object 0 does not exist
+ROLLBACK;
 -- Zero-downtime migration: transparent reading and on-the-fly migration
 --
 CREATE EXTENSION lolor;
+ERROR:  extension "lolor" already exists
 -- 1. Create a native large object while lolor is disabled
 SELECT lolor.disable();
  disable 
@@ -1066,60 +1161,6 @@ SELECT lo_close(:fd);
 (1 row)
 
 END;
-SELECT length(lo_get(:seek_oid)) AS unchanged_length;
- unchanged_length 
-------------------
-               16
-(1 row)
-
--- lo_get with a fragment length beyond the end is clamped, not an error.
-SELECT convert_from(lo_get(:seek_oid, 10, 1000), 'UTF8') AS clamped_fragment;
- clamped_fragment 
-------------------
- abcdef
-(1 row)
-
-SELECT lo_unlink(:seek_oid);
- lo_unlink 
------------
-         1
-(1 row)
-
---
--- Reading a multi-page object back in chunks that do not align with the page
--- size exercises the page-assembly path in lolor_inv_read().
---
-SELECT lo_from_bytea(0, repeat('abcdefgh', (:loblksize * 3 / 8))::bytea) AS multi_oid \gset
-SELECT length(lo_get(:multi_oid)) = :loblksize * 3 AS three_pages_written;
- three_pages_written 
----------------------
- t
-(1 row)
-
-SELECT count(*) AS page_rows FROM lolor.pg_largeobject WHERE loid = :multi_oid;
- page_rows 
------------
-         3
-(1 row)
-
-BEGIN;
-SELECT lo_open(:multi_oid, 262144) AS fd \gset
-SELECT length(loread(:fd, 1000)) AS chunk1;
- chunk1 
---------
-   1000
-(1 row)
-
-SELECT length(loread(:fd, 5000)) AS chunk2;
- chunk2 
---------
-   5000
-(1 row)
-
-SELECT length(loread(:fd, 100000)) AS chunk_rest;
- chunk_rest 
-------------
-        144
 -- 4. Verify object is still in native storage (reads do not migrate)
 SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 3001;
  count 
@@ -1193,14 +1234,6 @@ SELECT lo_close(:fd);
 (1 row)
 
 END;
-SELECT md5(lo_get(:multi_oid)) = md5(repeat('abcdefgh', (:loblksize * 3 / 8))::bytea)
-  AS content_round_trips;
- content_round_trips 
----------------------
- t
-(1 row)
-
-SELECT lo_unlink(:multi_oid);
 -- Must be in lolor storage and gone from native storage
 SELECT count(*) FROM pg_catalog.pg_largeobject_metadata WHERE oid = 3002;
  count 
@@ -1276,18 +1309,6 @@ SELECT lo_unlink(3002);
          1
 (1 row)
 
-<<<<<<< HEAD
---
--- Error paths.
---
-SELECT lo_get(0);
-ERROR:  large object 0 does not exist
-BEGIN;
-SELECT lo_open(0, 262144);
-ERROR:  large object 0 does not exist
-ROLLBACK;
-=======
->>>>>>> f9bf83c (Add zero-downtime migration support for native large objects)
 DROP EXTENSION lolor;
 NOTICE:  no lolor large objects to migrate
 --
