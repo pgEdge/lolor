@@ -160,14 +160,22 @@ get_LOLOR_LargeObjectDescriptionIndexId()
 	return LOLOR_LargeObjectDescriptionIndexId;
 }
 
+/*
+ * Close large object descriptors at end of transaction.
+ *
+ * The commit-side work runs on the pre-commit events, before the commit
+ * record is written, where core does its own AtEOXact_LargeObject(true).
+ * After the commit record any error is a PANIC, since the transaction can no
+ * longer abort; before it, an error is an ordinary abort.
+ */
 static void
 lolor_xact_callback(XactEvent event, void *arg)
 {
 	switch (event)
 	{
-		case XACT_EVENT_COMMIT:
-		case XACT_EVENT_PARALLEL_COMMIT:
-		case XACT_EVENT_PREPARE:
+		case XACT_EVENT_PRE_COMMIT:
+		case XACT_EVENT_PARALLEL_PRE_COMMIT:
+		case XACT_EVENT_PRE_PREPARE:
 			AtEOXact_LOLOR_LargeObject(true);
 			break;
 		case XACT_EVENT_ABORT:
