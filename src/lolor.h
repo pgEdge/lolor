@@ -47,7 +47,9 @@ extern Oid	get_LOLOR_LargeObjectDescriptionRelationIdIfExists(void);
 /* lolor_largeobject.c */
 extern Oid	LOLOR_LargeObjectCreate(Oid loid);
 extern void LOLOR_LargeObjectDrop(Oid loid);
-extern bool LOLOR_LargeObjectExists(Oid loid);
+extern bool LOLOR_MetadataRowExists(Relation rel, Oid indexId,
+									Snapshot snapshot, Oid loid);
+extern bool LOLOR_LargeObjectExists(Oid loid, Snapshot snapshot);
 extern Oid LOLOR_GetNewOidWithIndex(Relation relation, Oid indexId,
 									AttrNumber oidcolumn);
 
@@ -64,14 +66,6 @@ extern int	lolor_inv_write(LargeObjectDesc *obj_desc, const char *buf, int nbyte
 extern void lolor_inv_truncate(LargeObjectDesc *obj_desc, int64 len);
 
 /* lolor_fsstubs.c */
-
-#ifndef repalloc0_array
-#define repalloc0(pointer, oldsize, size) \
-	memset((char *) repalloc(pointer, size) + oldsize, 0, (size - oldsize))
-
-#define repalloc0_array(pointer, type, oldcount, count) \
-	((type *) repalloc0(pointer, sizeof(type) * (oldcount), sizeof(type) * (count)))
-#endif
 
 /*
  * Cleanup LOs at xact commit/abort

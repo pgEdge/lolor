@@ -164,27 +164,6 @@ flatten_varlenas(TupleDesc desc, Datum *values, const bool *nulls)
 	}
 }
 
-/*
- * Does "loid" already have a metadata row in rel?
- */
-static bool
-metadata_exists(Relation rel, Oid indexId, Oid loid)
-{
-	ScanKeyData skey[1];
-	SysScanDesc scan;
-	bool		found;
-
-	ScanKeyInit(&skey[0],
-				Anum_pg_largeobject_metadata_oid,
-				BTEqualStrategyNumber, F_OIDEQ,
-				ObjectIdGetDatum(loid));
-
-	scan = systable_beginscan(rel, indexId, true, NULL, 1, skey);
-	found = HeapTupleIsValid(systable_getnext(scan));
-	systable_endscan(scan);
-
-	return found;
-}
 
 /*
  * Collect OIDs for an error message: the first MIGRATE_MAX_REPORTED_CONFLICTS
@@ -238,7 +217,8 @@ check_oid_conflicts(MigrateRels *rels)
 											 &isnull));
 		Assert(!isnull);
 
-		if (!metadata_exists(rels->dst_meta, rels->dst_meta_idx, loid))
+		if (!LOLOR_MetadataRowExists(rels->dst_meta, rels->dst_meta_idx,
+									 NULL, loid))
 			continue;
 
 		report_oid(&buf, nconflicts, loid);

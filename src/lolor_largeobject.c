@@ -186,44 +186,53 @@ LOLOR_LargeObjectDrop(Oid loid)
 }
 
 /*
- * LOLOR_LargeObjectExists
+ * LOLOR_MetadataRowExists
  *
- * We don't use the system cache for large object metadata, for fear of
- * using too much local memory.
- *
- * This function always scans the system catalog using an up-to-date snapshot,
- * so it should not be used when a large object is opened in read-only mode
- * (because large objects opened in read only mode are supposed to be viewed
- * relative to the caller's snapshot, whereas in read-write mode they are
- * relative to a current snapshot).
+ * Does "loid" have a row in the given metadata relation, scanning through
+ * indexId under the given snapshot (NULL for the catalog snapshot)?  Works
+ * for lolor.pg_largeobject_metadata and pg_catalog.pg_largeobject_metadata
+ * alike; the relation must already be open.
  */
 bool
-LOLOR_LargeObjectExists(Oid loid)
+LOLOR_MetadataRowExists(Relation rel, Oid indexId, Snapshot snapshot, Oid loid)
 {
-	Relation	pg_lo_meta;
 	ScanKeyData skey[1];
 	SysScanDesc sd;
-	HeapTuple	tuple;
-	bool		retval = false;
+	bool		found;
 
 	ScanKeyInit(&skey[0],
 				Anum_pg_largeobject_metadata_oid,
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(loid));
 
-	pg_lo_meta = table_open(get_LOLOR_LargeObjectMetadataRelationId(),
-							AccessShareLock);
-
-	sd = systable_beginscan(pg_lo_meta,
-							get_LOLOR_LargeObjectMetadataOidIndexId(), true,
-							NULL, 1, skey);
-
-	tuple = systable_getnext(sd);
-	if (HeapTupleIsValid(tuple))
-		retval = true;
-
+	sd = systable_beginscan(rel, indexId, true, snapshot, 1, skey);
+	found = HeapTupleIsValid(systable_getnext(sd));
 	systable_endscan(sd);
 
+	return found;
+}
+
+/*
+ * LOLOR_LargeObjectExists
+ *
+ * Does "loid" exist in lolor storage?  We don't use the system cache for
+ * large object metadata, for fear of using too much local memory.
+ *
+ * The snapshot matters: a large object opened read-only is viewed relative
+ * to the caller's snapshot, one opened read-write relative to a current
+ * snapshot.  Pass NULL for an up-to-date catalog snapshot.
+ */
+bool
+LOLOR_LargeObjectExists(Oid loid, Snapshot snapshot)
+{
+	Relation	pg_lo_meta;
+	bool		retval;
+
+	pg_lo_meta = table_open(get_LOLOR_LargeObjectMetadataRelationId(),
+							AccessShareLock);
+	retval = LOLOR_MetadataRowExists(pg_lo_meta,
+									 get_LOLOR_LargeObjectMetadataOidIndexId(),
+									 snapshot, loid);
 	table_close(pg_lo_meta, AccessShareLock);
 
 	return retval;
