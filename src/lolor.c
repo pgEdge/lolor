@@ -15,6 +15,7 @@
 #include "postgres.h"
 
 #include "miscadmin.h"
+#include "pgstat.h"
 #include "fmgr.h"
 #include "access/xact.h"
 #include "access/genam.h"
@@ -24,6 +25,7 @@
 #include "catalog/namespace.h"
 #include "catalog/objectaccess.h"
 #include "catalog/pg_extension.h"
+#include "catalog/pg_database.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_type.h"
 #include "commands/event_trigger.h"
@@ -32,6 +34,7 @@
 #include "nodes/parsenodes.h"
 #include "nodes/value.h"
 #include "nodes/print.h"
+#include "storage/lmgr.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -63,6 +66,13 @@ static Oid	LOLOR_LargeObjectDescriptionRelationId = InvalidOid;
 static Oid	LOLOR_LargeObjectDescriptionIndexId = InvalidOid;
 
 PG_FUNCTION_INFO_V1(lolor_on_drop_extension);
+PG_FUNCTION_INFO_V1(lolor_require_no_other_sessions);
+PG_FUNCTION_INFO_V1(lolor_require_version_match);
+
+/* The Makefile passes default_version from lolor.control. */
+#ifndef LOLOR_VERSION
+#error "LOLOR_VERSION must be defined"
+#endif
 
 static Oid
 get_lobj_table_oid_extended(const char *table, bool missing_ok)
@@ -322,6 +332,188 @@ lolor_schema_owner(void)
 }
 
 /*
+ * lolor_installed_version
+ *
+ *	extversion of the installed lolor extension, or NULL when it is not
+ *	installed.
+ */
+static char *
+lolor_installed_version(void)
+{
+	Relation	rel;
+	ScanKeyData skey[1];
+	SysScanDesc scan;
+	HeapTuple	tup;
+	char	   *version = NULL;
+
+	rel = table_open(ExtensionRelationId, AccessShareLock);
+
+	ScanKeyInit(&skey[0],
+				Anum_pg_extension_extname,
+				BTEqualStrategyNumber, F_NAMEEQ,
+				CStringGetDatum(EXTENSION_NAME));
+
+	scan = systable_beginscan(rel, ExtensionNameIndexId, true, NULL, 1, skey);
+
+	tup = systable_getnext(scan);
+	if (HeapTupleIsValid(tup))
+	{
+		Datum		datum;
+		bool		isnull;
+
+		datum = heap_getattr(tup, Anum_pg_extension_extversion,
+							 RelationGetDescr(rel), &isnull);
+		if (!isnull)
+			version = TextDatumGetCString(datum);
+	}
+
+	systable_endscan(scan);
+	table_close(rel, AccessShareLock);
+
+	return version;
+}
+
+/*
+ * lolor_check_version
+ *
+ *	Refuse an operation that changes what lolor has done to the database
+ *	while the loaded library and the installed extension disagree.  Either
+ *	side may be the older one: the library is upgraded before ALTER
+ *	EXTENSION UPDATE runs, and the SQL of one version may rely on behaviour
+ *	of its own library only.  Make them agree first.
+ */
+static void
+lolor_check_version(const char *what)
+{
+	char	   *installed = lolor_installed_version();
+
+	if (installed == NULL || strcmp(installed, LOLOR_VERSION) == 0)
+		return;
+
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			 errmsg("cannot %s: the lolor library is version %s but the installed extension is version %s",
+					what, LOLOR_VERSION, installed),
+			 errhint("Run ALTER EXTENSION lolor UPDATE, or install the library that matches the extension.")));
+}
+
+/*
+ * lolor_check_sole_session
+ *
+ *	Refuse unless the caller is a client session (or a standalone backend)
+ *	and no other client session is connected to this database.
+ *
+ *	Renaming the pg_catalog large object functions cannot be made atomic for
+ *	other backends: a rename keeps the function OID, so a session that has
+ *	already resolved lo_open() keeps calling the previous implementation.
+ *	Background workers, such as replication apply workers, do not call these
+ *	functions by name and are not counted; they are refused as callers
+ *	instead, because these operations are node-local.
+ *
+ *	The count cannot race with a connecting session.  A backend takes
+ *	RowExclusiveLock on its database before it publishes its activity entry
+ *	and keeps it until that entry is visible, so with AccessExclusiveLock
+ *	held here a session either shows up in the count or waits until this
+ *	transaction ends.  The lock is released at commit or rollback.
+ */
+static void
+lolor_check_sole_session(const char *what)
+{
+	int			ret;
+	int64		others;
+	bool		isnull;
+
+	if (MyBackendType != B_BACKEND && MyBackendType != B_STANDALONE_BACKEND)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("cannot %s from a %s",
+						what, GetBackendTypeDesc(MyBackendType)),
+				 errhint("Run it from a client session connected directly to this node.")));
+
+	/* Nobody else can be connected to a standalone backend. */
+	if (MyBackendType == B_STANDALONE_BACKEND)
+		return;
+
+	LockSharedObject(DatabaseRelationId, MyDatabaseId, 0, AccessExclusiveLock);
+
+	/*
+	 * Within a transaction pg_stat_activity is read once and then retained,
+	 * so an earlier look at it would hide a session that connected since.
+	 */
+	pgstat_clear_snapshot();
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	{
+		Oid			argtypes[2] = {OIDOID, INT4OID};
+		Datum		values[2];
+
+		values[0] = ObjectIdGetDatum(MyDatabaseId);
+		values[1] = Int32GetDatum(MyProcPid);
+
+		ret = SPI_execute_with_args("SELECT count(*) FROM pg_catalog.pg_stat_activity "
+									"WHERE datid = $1 "
+									"AND backend_type = 'client backend' "
+									"AND pid <> $2",
+									2, argtypes, values, NULL, true, 1);
+	}
+	if (ret != SPI_OK_SELECT || SPI_processed != 1)
+		elog(ERROR, "could not count other sessions: %s",
+			 SPI_result_code_string(ret));
+
+	others = DatumGetInt64(SPI_getbinval(SPI_tuptable->vals[0],
+										 SPI_tuptable->tupdesc, 1, &isnull));
+	if (isnull)
+		elog(ERROR, "could not count other sessions");
+
+	SPI_finish();
+
+	if (others > 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_IN_USE),
+				 errmsg("cannot %s while other sessions are connected to the database",
+						what),
+				 errdetail_plural("%lld other session is connected.",
+								  "%lld other sessions are connected.",
+								  (unsigned long) others, (long long) others),
+				 errhint("Disconnect them first. A session that already resolved the "
+						 "large object functions keeps calling the previous implementation.")));
+}
+
+/*
+ * lolor_require_no_other_sessions(what text)
+ *
+ *	SQL entry point for the checks enable(), disable() and the migrations
+ *	share with the drop: matching versions, a client session, and no other
+ *	client session connected.  In C so that it is the loaded library, not
+ *	whatever SQL is installed, that decides.
+ */
+Datum
+lolor_require_no_other_sessions(PG_FUNCTION_ARGS)
+{
+	char	   *what = text_to_cstring(PG_GETARG_TEXT_PP(0));
+
+	lolor_check_version(what);
+	lolor_check_sole_session(what);
+
+	PG_RETURN_VOID();
+}
+
+/*
+ * lolor_require_version_match(what text)
+ *
+ *	The version check alone, for operations that do not need sole access.
+ */
+Datum
+lolor_require_version_match(PG_FUNCTION_ARGS)
+{
+	lolor_check_version(text_to_cstring(PG_GETARG_TEXT_PP(0)));
+
+	PG_RETURN_VOID();
+}
+
+/*
  * lolor_storage_drop_check
  *
  *	Refuse to delete lolor.pg_largeobject_metadata while it holds rows.
@@ -535,6 +727,9 @@ Datum
 lolor_on_drop_extension(PG_FUNCTION_ARGS)
 {
 	EventTriggerData *trigdata;
+	int			ret;
+	bool		disabled;
+	bool		isnull;
 
 	/* Make sure we are called as an event trigger */
 	if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
@@ -569,6 +764,13 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	}
 
 	/*
+	 * The drop runs the installed disable(), which may belong to another
+	 * version than this library: an older one still has the unqualified
+	 * pg_proc lookups 1.3.0 fixed.  Refuse until they agree.
+	 */
+	lolor_check_version("drop the lolor extension");
+
+	/*
 	 * The hook refuses the drop while lolor storage holds objects, but only
 	 * when the table itself is deleted, after this trigger has run.  Check it
 	 * here first, with the hook's own message, so that a refused drop renames
@@ -576,33 +778,43 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	 */
 	lolor_storage_drop_check(get_LOLOR_LargeObjectMetadataRelationId());
 
-	SPI_connect();
 	/*
-	 * disable() renames the native functions back.  That has the same
-	 * requirements whether the user calls it or the drop does: no other
-	 * session may be connected, because a renamed function keeps its OID and
-	 * other sessions keep calling the previous implementation, and it has to
-	 * run from a client session.  Check them here first, under the drop's own
-	 * name, so that the refusal says what was refused.  A disabled lolor
-	 * renames nothing, so the check only applies while it is enabled.  The
-	 * helper exists from 1.3.0; dropping an older installed version runs that
-	 * version's disable(), which has no such requirement.
+	 * A disabled lolor renames nothing, so the rest only applies while the
+	 * native functions are still parked under their _orig names.
 	 */
-	if (SPI_execute("SELECT 1 FROM pg_proc p "
-					"JOIN pg_namespace n ON n.oid = p.pronamespace "
-					"WHERE n.nspname = 'lolor' "
-					"AND p.proname = '_require_no_other_sessions'",
-					true, 1) == SPI_OK_SELECT &&
-		SPI_processed > 0)
-		SPI_execute("SELECT CASE WHEN lolor.is_enabled() THEN "
-					"lolor._require_no_other_sessions("
-					"'drop the lolor extension') END",
-					false, 0);
+	if (!lolor_orig_functions_present())
+		PG_RETURN_NULL();
 
-	SPI_execute("SELECT CASE WHEN lolor.is_enabled() "
-				"THEN lolor.disable() ELSE true END",
-				false, 0);
+	/*
+	 * disable() renames the native functions back, and has the same
+	 * requirements whether the user calls it or the drop does.  Check them
+	 * here, under the drop's own name, so that the refusal says what was
+	 * refused.
+	 */
+	lolor_check_sole_session("drop the lolor extension");
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	ret = SPI_execute("SELECT lolor.disable()", false, 1);
+	if (ret != SPI_OK_SELECT || SPI_processed != 1)
+		elog(ERROR, "lolor.disable() failed: %s", SPI_result_code_string(ret));
+
+	disabled = DatumGetBool(SPI_getbinval(SPI_tuptable->vals[0],
+										  SPI_tuptable->tupdesc, 1, &isnull));
+
 	SPI_finish();
+
+	/*
+	 * false means disable() found nothing to do or an inconsistent state.
+	 * Either way the native names are not back, and dropping now would leave
+	 * pg_catalog without them.
+	 */
+	if (isnull || !disabled)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("cannot drop the lolor extension: lolor.disable() did not restore the native large object functions"),
+				 errhint("Check the pg_catalog.lo_*_orig and pg_catalog.lolor_lo_* functions and run lolor.disable() by hand.")));
 
 	PG_RETURN_NULL();
 }

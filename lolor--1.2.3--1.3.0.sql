@@ -48,6 +48,17 @@ END;
 $$;
 
 /*
+ * Refuse unless the loaded library matches this extension version.  For the
+ * operations that do not need sole access; the others get it from
+ * _require_no_other_sessions().  Executable by everyone, since
+ * check_orphans() can be granted to non-superusers.
+ */
+CREATE FUNCTION lolor._require_version_match(what text)
+RETURNS void
+AS 'MODULE_PATHNAME', 'lolor_require_version_match'
+LANGUAGE C STRICT STABLE;
+
+/*
  * Large objects in lolor storage that refer to a role which no longer exists,
  * as owner, grantee or grantor.
  *
@@ -60,6 +71,7 @@ $$;
  */
 CREATE FUNCTION lolor.check_orphans()
 RETURNS TABLE (loid oid, role_oid oid, role_kind text) AS $$
+  SELECT lolor._require_version_match('check for orphaned large objects');
   SELECT m.oid, m.lomowner, 'owner'
   FROM lolor.pg_largeobject_metadata m
   WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = m.lomowner)
@@ -97,6 +109,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper) THEN
     RAISE EXCEPTION 'must be superuser to repair orphaned large objects';
   END IF;
+
+  PERFORM lolor._require_version_match('repair orphaned large objects');
 
   WITH o AS (
     SELECT m.oid, m.lomowner AS old_owner, m.lomacl,
@@ -171,51 +185,24 @@ WHERE dbid = (SELECT oid FROM pg_catalog.pg_database
  */
 
 /*
- * Refuse unless called from a client session that is the only one connected
- * to this database.
+ * Refuse unless the loaded library matches this extension version, the
+ * caller is a client session, and no other client session is connected to
+ * this database.
  *
  * Renaming the pg_catalog large object functions cannot be made atomic for
  * other backends: a rename keeps the function OID, so a session that has
  * already resolved lo_open() keeps calling the previous implementation, and
  * neither cached plans nor libpq's fastpath OIDs are invalidated.  Require
- * sole access instead, as ALTER DATABASE ... RENAME does.  This is a snapshot
- * of pg_stat_activity, so a session connecting in the same instant is not
- * excluded; that window is why the migration also takes its own locks.
+ * sole access instead, as ALTER DATABASE ... RENAME does.  The check is in
+ * C, so it is the loaded library that decides, and it takes
+ * AccessExclusiveLock on the database before counting: a session that is
+ * connecting either shows up in the count or waits until the caller's
+ * transaction ends.
  */
-CREATE OR REPLACE FUNCTION lolor._require_no_other_sessions(what text)
-RETURNS void AS $$
-DECLARE
-  n    int;
-  self text;
-BEGIN
-  -- A background worker, such as an apply worker executing replicated DDL,
-  -- is not a client session.  These operations are node-local and have to be
-  -- run on each node directly; replicating them is unsupported, so refuse
-  -- rather than apply them half way.
-  SELECT backend_type INTO self
-  FROM pg_catalog.pg_stat_activity
-  WHERE pid = pg_backend_pid();
-
-  IF self IS DISTINCT FROM 'client backend' THEN
-    RAISE EXCEPTION 'cannot % from a %', what, coalesce(self, 'non-client process')
-      USING HINT = 'Run it from a client session connected directly to this node.';
-  END IF;
-
-  SELECT count(*) INTO n
-  FROM pg_catalog.pg_stat_activity
-  WHERE datname = current_database()
-    AND backend_type = 'client backend'
-    AND pid <> pg_backend_pid();
-
-  IF n > 0 THEN
-    RAISE EXCEPTION 'cannot % while other sessions are connected to the database', what
-      USING DETAIL = CASE WHEN n = 1 THEN '1 other session is connected.'
-                          ELSE n || ' other sessions are connected.' END,
-            HINT = 'Disconnect them first. A session that already resolved the '
-                   'large object functions keeps calling the previous implementation.';
-  END IF;
-END;
-$$ LANGUAGE plpgsql VOLATILE;
+CREATE FUNCTION lolor._require_no_other_sessions(what text)
+RETURNS void
+AS 'MODULE_PATHNAME', 'lolor_require_no_other_sessions'
+LANGUAGE C STRICT VOLATILE;
 
 REVOKE ALL ON FUNCTION lolor._require_no_other_sessions(text) FROM PUBLIC;
 

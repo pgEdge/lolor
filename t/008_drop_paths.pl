@@ -12,6 +12,20 @@ use Test::More;
 
 my $node = PostgreSQL::Test::Cluster->new('drop_paths');
 
+# quit waits for psql to exit, not for its backend, and the session checks
+# would still count a backend that has not exited yet.
+sub wait_for_other_sessions_to_exit
+{
+	$node->poll_query_until(
+		'postgres', qq(
+		SELECT count(*) = 0 FROM pg_stat_activity
+		 WHERE datname = current_database()
+		   AND backend_type = 'client backend'
+		   AND pid <> pg_backend_pid()))
+	  or die "the other sessions' backends did not exit";
+	return;
+}
+
 $node->init;
 $node->append_conf(
 	'postgresql.conf', qq{
@@ -141,19 +155,28 @@ like(
 	"and the refusal names the drop");
 
 $other->quit;
-# The backend exits after the client has gone; a disable() issued at once
-# could still count it.
-$node->poll_query_until(
-	'postgres', qq(
-	SELECT count(*) = 0 FROM pg_stat_activity
-	 WHERE datname = current_database()
-	   AND backend_type = 'client backend'
-	   AND pid <> pg_backend_pid()))
-  or die "the other session's backend did not exit";
+wait_for_other_sessions_to_exit();
 is($node->safe_psql('postgres', "SELECT lolor.disable()"),
 	't', "disable() works once the other session is gone");
 is($node->safe_psql('postgres', "SELECT lolor.enable()"),
 	't', "and so does enable()");
+# pg_stat_activity is read once per transaction and then retained.  A session
+# that looked at it before another one connected must still be refused.
+my $main = $node->background_psql('postgres', on_error_stop => 0);
+$main->query_safe("BEGIN; SELECT count(*) FROM pg_stat_activity");
+$other = $node->background_psql('postgres');
+$other->query_safe("SELECT 1");
+$main->query("SELECT lolor.disable()");
+like(
+	$main->{stderr},
+	qr/while other sessions are connected to the database/,
+	"a stale activity snapshot does not let disable() through");
+$main->query("ROLLBACK");
+$main->quit;
+$other->quit;
+wait_for_other_sessions_to_exit();
+is($node->safe_psql('postgres', "SELECT lolor.is_enabled()"),
+	't', "and lolor is still enabled");
 $node->safe_psql('postgres', "DROP EXTENSION lolor");
 
 $node->stop;
