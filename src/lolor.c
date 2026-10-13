@@ -15,6 +15,7 @@
 #include "postgres.h"
 
 #include "miscadmin.h"
+#include "pgstat.h"
 #include "fmgr.h"
 #include "access/xact.h"
 #include "access/genam.h"
@@ -605,6 +606,13 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 
 	if (SPI_connect() != SPI_OK_CONNECT)
 		elog(ERROR, "SPI_connect failed");
+
+	/*
+	 * Within a transaction pg_stat_activity is read once and then retained,
+	 * so an earlier look at it in this transaction would hide a session that
+	 * connected since.  Drop that snapshot and count afresh.
+	 */
+	pgstat_clear_snapshot();
 
 	ret = SPI_execute("SELECT count(*) FROM pg_catalog.pg_stat_activity "
 					  "WHERE datname = pg_catalog.current_database() "
