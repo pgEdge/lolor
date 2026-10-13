@@ -101,9 +101,11 @@ while any object remains in lolor storage, on every path that reaches it
 (`DROP EXTENSION`, `DROP SCHEMA lolor CASCADE`, `DROP OWNED BY`). The drop
 itself only puts the native `pg_catalog.lo_*` names back. To discard whatever
 is in lolor storage instead, a superuser can set `lolor.allow_unsafe_drop = on`
-for the session that runs the drop; it skips both checks. The drop renames the
-native functions back, so it has the same requirements as `lolor.disable()`:
-no other session connected to the database, and a client session.
+for the session that runs the drop; it skips both checks. While lolor is
+enabled, the drop also renames the native functions back, so it has the same
+requirements as `lolor.disable()`: no other session connected to the database,
+and a client session. A disabled lolor renames nothing, and the drop has no
+such requirement.
 
 Both directions preserve original OIDs, owners, ACLs, and data.
 
@@ -130,8 +132,7 @@ Without spock, the migration DML cannot be excluded from logical decoding, so
 both functions refuse to migrate while logical replication slots exist in the
 database: `migrate_from_native()` raises a `WARNING` and returns -1 without
 doing anything (0 is reserved for "nothing to migrate"), while
-`migrate_to_native()` (and therefore `DROP EXTENSION lolor`) raises an
-`ERROR`. Drop all logical replication slots before
+`migrate_to_native()` raises an `ERROR`. Drop all logical replication slots before
 migrating; merely disabling a subscription is not sufficient, since its slot
 retains the changes and delivers them when replication resumes.
 

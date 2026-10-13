@@ -89,8 +89,7 @@ Without spock, the migration DML cannot be excluded from logical decoding, so
 both functions refuse to migrate while logical replication slots exist in the
 database: `migrate_from_native()` raises a `WARNING` and returns -1 without
 doing anything (0 is reserved for "nothing to migrate"), while
-`migrate_to_native()` (and therefore `DROP EXTENSION lolor`) raises an
-`ERROR`.  Drop all logical replication slots before
+`migrate_to_native()` raises an `ERROR`.  Drop all logical replication slots before
 migrating; merely disabling a subscription is not sufficient, since its slot
 retains the changes and delivers them when replication resumes.
 
