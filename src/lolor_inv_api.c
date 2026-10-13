@@ -120,41 +120,6 @@ lolor_close_lo_relation(bool isCommit)
 }
 
 
-/*
- * Same as pg_largeobject.c's LOLOR_LargeObjectExists(), except snapshot to
- * read with can be specified.
- */
-static bool
-myLargeObjectExists(Oid loid, Snapshot snapshot)
-{
-	Relation	pg_lo_meta;
-	ScanKeyData skey[1];
-	SysScanDesc sd;
-	HeapTuple	tuple;
-	bool		retval = false;
-
-	ScanKeyInit(&skey[0],
-				Anum_pg_largeobject_metadata_oid,
-				BTEqualStrategyNumber, F_OIDEQ,
-				ObjectIdGetDatum(loid));
-
-	pg_lo_meta = table_open(get_LOLOR_LargeObjectMetadataRelationId(),
-							AccessShareLock);
-
-	sd = systable_beginscan(pg_lo_meta,
-							get_LOLOR_LargeObjectMetadataOidIndexId(), true,
-							snapshot, 1, skey);
-
-	tuple = systable_getnext(sd);
-	if (HeapTupleIsValid(tuple))
-		retval = true;
-
-	systable_endscan(sd);
-
-	table_close(pg_lo_meta, AccessShareLock);
-
-	return retval;
-}
 
 
 /*
@@ -280,8 +245,7 @@ lolor_inv_open(Oid lobjId, int flags, MemoryContext mcxt)
 	else
 		snapshot = GetActiveSnapshot();
 
-	/* Can't use LOLOR_LargeObjectExists here because we need to specify snapshot */
-	if (!myLargeObjectExists(lobjId, snapshot))
+	if (!LOLOR_LargeObjectExists(lobjId, snapshot))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("large object %u does not exist", lobjId)));

@@ -55,8 +55,8 @@ $$;
  * participate in pg_shdepend: DROP ROLE will not notice them the way it
  * notices native large objects.  That is inherent to storing them outside the
  * catalogs; this function makes the consequence findable, and fix_orphans()
- * repairs it.  Joins pg_roles rather than pg_authid so that a grantee of
- * EXECUTE can actually run it.
+ * repairs it.  EXECUTE is revoked from PUBLIC, and the lolor tables carry no
+ * grants, so in practice a superuser runs it.
  */
 CREATE FUNCTION lolor.check_orphans()
 RETURNS TABLE (loid oid, role_oid oid, role_kind text) AS $$
