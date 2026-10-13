@@ -14,8 +14,8 @@
  * rows for the owner and ACL grantees, and pg_description comments, which have
  * nowhere to live while an object sits in lolor storage and are parked in
  * lolor.pg_largeobject_description for the duration.  Native objects are
- * removed through performMultipleDeletions(), the path DROP uses, so core
- * cleans up dependencies, comments and security labels.
+ * removed with the same bookkeeping DROP does, dependencies, comments and
+ * security labels included, but without the per-object locks DROP takes.
  *
  * Copyright (c) 2022-2026, pgEdge, Inc.
  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
@@ -39,6 +39,7 @@
 #include "catalog/pg_largeobject.h"
 #include "catalog/pg_largeobject_metadata.h"
 #include "commands/comment.h"
+#include "commands/seclabel.h"
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "utils/acl.h"
@@ -51,12 +52,6 @@
 
 #include "lolor.h"
 
-/*
- * How many objects to hand to performMultipleDeletions() at a time.  Bounds
- * the memory used by the ObjectAddresses array on databases holding a very
- * large number of large objects.
- */
-#define MIGRATE_DELETE_CHUNK	1000
 
 /*
  * How many conflicting OIDs to name in the pre-flight error before
@@ -192,6 +187,27 @@ metadata_exists(Relation rel, Oid indexId, Oid loid)
 }
 
 /*
+ * Collect OIDs for an error message: the first MIGRATE_MAX_REPORTED_CONFLICTS
+ * are listed, the rest are counted.  report_oid() is called once per object
+ * with the running count before this one; finish_oid_report() appends the
+ * overflow.
+ */
+static void
+report_oid(StringInfo buf, int64 nbefore, Oid loid)
+{
+	if (nbefore < MIGRATE_MAX_REPORTED_CONFLICTS)
+		appendStringInfo(buf, "%s%u", nbefore > 0 ? ", " : "", loid);
+}
+
+static void
+finish_oid_report(StringInfo buf, int64 total)
+{
+	if (total > MIGRATE_MAX_REPORTED_CONFLICTS)
+		appendStringInfo(buf, " and %lld more",
+						 (long long) (total - MIGRATE_MAX_REPORTED_CONFLICTS));
+}
+
+/*
  * Pre-flight OID conflict check.
  *
  * Runs before anything is written so that a conflict leaves both stores
@@ -225,8 +241,7 @@ check_oid_conflicts(MigrateRels *rels)
 		if (!metadata_exists(rels->dst_meta, rels->dst_meta_idx, loid))
 			continue;
 
-		if (nconflicts < MIGRATE_MAX_REPORTED_CONFLICTS)
-			appendStringInfo(&buf, "%s%u", nconflicts > 0 ? ", " : "", loid);
+		report_oid(&buf, nconflicts, loid);
 		nconflicts++;
 	}
 	systable_endscan(scan);
@@ -237,9 +252,7 @@ check_oid_conflicts(MigrateRels *rels)
 		return;
 	}
 
-	if (nconflicts > MIGRATE_MAX_REPORTED_CONFLICTS)
-		appendStringInfo(&buf, " and " INT64_FORMAT " more",
-						 nconflicts - MIGRATE_MAX_REPORTED_CONFLICTS);
+	finish_oid_report(&buf, nconflicts);
 
 	ereport(ERROR,
 			(errcode(ERRCODE_DUPLICATE_OBJECT),
@@ -324,8 +337,7 @@ check_orphaned_roles(MigrateRels *rels)
 		if (!orphan)
 			continue;
 
-		if (norphans < MIGRATE_MAX_REPORTED_CONFLICTS)
-			appendStringInfo(&buf, "%s%u", norphans > 0 ? ", " : "", loid);
+		report_oid(&buf, norphans, loid);
 		norphans++;
 	}
 	systable_endscan(scan);
@@ -337,9 +349,7 @@ check_orphaned_roles(MigrateRels *rels)
 		return;
 	}
 
-	if (norphans > MIGRATE_MAX_REPORTED_CONFLICTS)
-		appendStringInfo(&buf, " and %lld more",
-						 (long long) (norphans - MIGRATE_MAX_REPORTED_CONFLICTS));
+	finish_oid_report(&buf, norphans);
 
 	ereport(ERROR,
 			(errcode(ERRCODE_UNDEFINED_OBJECT),
@@ -405,25 +415,6 @@ park_comment(MigrateRels *rels, Oid loid, const char *comment)
 	tup = heap_form_tuple(RelationGetDescr(rel), values, nulls);
 	CatalogTupleInsert(rel, tup);
 	heap_freetuple(tup);
-}
-
-/*
- * Remove every row from lolor.pg_largeobject_description.
- */
-static void
-clear_parked_comments(MigrateRels *rels)
-{
-	Relation	rel = rels->desc_rel;
-	SysScanDesc scan;
-	HeapTuple	tup;
-
-	scan = systable_beginscan(rel, InvalidOid, false, NULL, 0, NULL);
-	while (HeapTupleIsValid(tup = systable_getnext(scan)))
-	{
-		CHECK_FOR_INTERRUPTS();
-		CatalogTupleDelete(rel, &tup->t_self);
-	}
-	systable_endscan(scan);
 }
 
 /*
@@ -513,7 +504,7 @@ copy_metadata(MigrateRels *rels)
 			 * lolor's tables are ordinary tables, so a comment has nowhere to
 			 * attach while the object lives there.  Park it so the round trip
 			 * back to native storage is lossless.  The pg_description row
-			 * itself is removed by performMultipleDeletions() later.
+			 * itself goes away with the object in drop_native_objects().
 			 */
 			char	   *comment = GetComment(loid, LargeObjectRelationId, 0);
 
@@ -597,19 +588,21 @@ copy_data_pages(MigrateRels *rels)
 /*
  * Remove the native large objects that have just been copied into lolor.
  *
- * performMultipleDeletions() is the same path DROP takes, so pg_shdepend,
- * pg_description and pg_seclabel rows go away with the objects instead of
- * being left behind for someone to discover later.
+ * This does by hand what performMultipleDeletions() does for a large object:
+ * the metadata and data rows, the pg_shdepend, pg_description and pg_seclabel
+ * rows, and the drop hook.  It deliberately does not go through
+ * performMultipleDeletions(), which takes an AccessExclusiveLock on every
+ * object and holds it to commit: a database with more large objects than the
+ * lock table has room for would fail with "out of shared memory" after the
+ * copy.  The locks are not needed here.  The caller holds
+ * ShareRowExclusiveLock on both native catalogs, which blocks every other
+ * writer, including lo_unlink().
  */
 static void
 drop_native_objects(MigrateRels *rels)
 {
 	SysScanDesc scan;
 	HeapTuple	tup;
-	ObjectAddresses *addrs;
-	int			pending = 0;
-
-	addrs = new_object_addresses();
 
 	scan = systable_beginscan(rels->src_meta, InvalidOid, false, NULL, 0, NULL);
 	while (HeapTupleIsValid(tup = systable_getnext(scan)))
@@ -627,26 +620,14 @@ drop_native_objects(MigrateRels *rels)
 		obj.objectSubId = 0;
 		Assert(!isnull);
 
-		add_exact_object_address(&obj, addrs);
-
-		if (++pending >= MIGRATE_DELETE_CHUNK)
-		{
-			performMultipleDeletions(addrs, DROP_CASCADE,
-									 PERFORM_DELETION_INTERNAL |
-									 PERFORM_DELETION_QUIETLY);
-			free_object_addresses(addrs);
-			addrs = new_object_addresses();
-			pending = 0;
-		}
+		InvokeObjectDropHook(obj.classId, obj.objectId, obj.objectSubId);
+		LargeObjectDrop(obj.objectId);
+		deleteSharedDependencyRecordsFor(obj.classId, obj.objectId, 0);
+		DeleteComments(obj.objectId, obj.classId, 0);
+		DeleteSecurityLabel(&obj);
 	}
 	systable_endscan(scan);
 
-	if (pending > 0)
-		performMultipleDeletions(addrs, DROP_CASCADE,
-								 PERFORM_DELETION_INTERNAL |
-								 PERFORM_DELETION_QUIETLY);
-
-	free_object_addresses(addrs);
 	CommandCounterIncrement();
 }
 
@@ -769,7 +750,7 @@ lolor_migrate_storage(PG_FUNCTION_ARGS)
 	{
 		truncate_lolor_table(rels.src_data);
 		truncate_lolor_table(rels.src_meta);
-		clear_parked_comments(&rels);
+		truncate_lolor_table(rels.desc_rel);
 		CommandCounterIncrement();
 	}
 	else

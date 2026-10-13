@@ -64,9 +64,12 @@ while any object remains in lolor storage, on every path that reaches it
 (`DROP EXTENSION`, `DROP SCHEMA lolor CASCADE`, `DROP OWNED BY`). The drop
 itself only puts the native `pg_catalog.lo_*` names back. To discard whatever
 is in lolor storage instead, a superuser can set `lolor.allow_unsafe_drop = on`
-for the session that runs the drop; it skips both checks. The drop renames the
+for the session that runs the drop. It skips every check, and the drop then
+does not restore the native function names either, so run `lolor.disable()`
+first if lolor is enabled. While lolor is enabled, a normal drop renames the
 native functions back, so it has the same requirements as `lolor.disable()`:
-no other session connected to the database, and a client session.
+no other session connected to the database, and a client session. A disabled
+lolor renames nothing, and the drop has no such requirement.
 
 `lolor.enable()` and `lolor.disable()` refuse while
 any other session is connected to the database, and refuse to run from

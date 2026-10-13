@@ -189,8 +189,9 @@ DECLARE
   self text;
 BEGIN
   -- A background worker, such as an apply worker executing replicated DDL,
-  -- is not a client session and must not do this at all: the change is
-  -- node-local and a refusal would leave that worker retrying forever.
+  -- is not a client session.  These operations are node-local and have to be
+  -- run on each node directly; replicating them is unsupported, so refuse
+  -- rather than apply them half way.
   SELECT backend_type INTO self
   FROM pg_catalog.pg_stat_activity
   WHERE pid = pg_backend_pid();

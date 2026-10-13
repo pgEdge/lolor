@@ -326,8 +326,17 @@ SET LOCAL lolor.allow_unsafe_drop = on;
 DROP EXTENSION lolor;
 SELECT count(*) AS extension_gone FROM pg_extension WHERE extname = 'lolor';
 ROLLBACK;
--- Back on the supported path: migrate out by hand, then drop
+-- With the trigger back on, the escape hatch also skips the function restore
+-- and says so
 ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+SELECT lolor.enable();
+BEGIN;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+SELECT to_regprocedure('pg_catalog.lo_open_orig(oid,int4)') IS NOT NULL AS orig_left_parked;
+ROLLBACK;
+SELECT lolor.disable();
+-- Back on the supported path: migrate out by hand, then drop
 SELECT lolor.enable();
 SELECT lolor.migrate_to_native();
 DROP EXTENSION lolor;
@@ -681,6 +690,21 @@ SELECT convert_from(lo_get(:rescued_oid), 'UTF8') AS rescued_content;
 SELECT lo_unlink(:rescued_oid);
 
 --
+--
+-- DROP OWNED BY ... CASCADE for the schema's owner reaches the extension the
+-- same way once ALTER SCHEMA has moved the schema to another role.  The
+-- cleanup must recognise that owner too, or the drop goes through with the
+-- native names still parked.
+--
+CREATE EXTENSION lolor;
+CREATE ROLE lolor_schema_owner SUPERUSER;
+ALTER SCHEMA lolor OWNER TO lolor_schema_owner;
+DROP OWNED BY lolor_schema_owner CASCADE;
+SELECT count(*) AS ext_left FROM pg_extension WHERE extname = 'lolor';
+SELECT to_regprocedure('pg_catalog.lo_open(oid,int4)') IS NOT NULL AS lo_open_restored;
+SELECT to_regprocedure('pg_catalog.lo_open_orig(oid,int4)') IS NULL AS no_orig_left;
+DROP ROLE lolor_schema_owner;
+
 -- DROP SCHEMA without CASCADE is RESTRICT and cannot remove a schema that
 -- still holds the extension's tables.  The cleanup must not run for a command
 -- that is going to be rejected.

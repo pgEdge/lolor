@@ -297,6 +297,31 @@ lolor_extension_owner(void)
 }
 
 /*
+ * lolor_schema_owner
+ *
+ *	Owner of the lolor schema, or InvalidOid when it does not exist.  It is
+ *	the extension owner unless someone ran ALTER SCHEMA lolor OWNER TO.
+ */
+static Oid
+lolor_schema_owner(void)
+{
+	Oid			nspoid = get_namespace_oid(EXTENSION_NAME, true);
+	HeapTuple	tup;
+	Oid			owner;
+
+	if (!OidIsValid(nspoid))
+		return InvalidOid;
+
+	tup = SearchSysCache1(NAMESPACEOID, ObjectIdGetDatum(nspoid));
+	if (!HeapTupleIsValid(tup))
+		return InvalidOid;
+	owner = ((Form_pg_namespace) GETSTRUCT(tup))->nspowner;
+	ReleaseSysCache(tup);
+
+	return owner;
+}
+
+/*
  * lolor_storage_drop_check
  *
  *	Refuse to delete lolor.pg_largeobject_metadata while it holds rows.
@@ -326,20 +351,24 @@ lolor_storage_drop_check(Oid relid)
 		getExtensionOfObject(RelationRelationId, relid) != extoid)
 		return;
 
-	/* The dropper already holds AccessExclusiveLock. */
-	rel = table_open(relid, NoLock);
+	/*
+	 * From the hook the dropper already holds AccessExclusiveLock; from the
+	 * event trigger nothing is locked yet.  AccessShareLock is right for
+	 * both.
+	 */
+	rel = table_open(relid, AccessShareLock);
 	scan = systable_beginscan(rel, InvalidOid, false, NULL, 0, NULL);
 	while (HeapTupleIsValid(systable_getnext(scan)))
 		count++;
 	systable_endscan(scan);
-	table_close(rel, NoLock);
+	table_close(rel, AccessShareLock);
 
 	if (count > 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST),
 				 errmsg_plural("cannot drop lolor storage while it holds %lld large object",
 							   "cannot drop lolor storage while it holds %lld large objects",
-							   count, (long long) count),
+							   (unsigned long) count, (long long) count),
 				 errhint("Run lolor.migrate_to_native() first, or set lolor.allow_unsafe_drop to discard them.")));
 }
 
@@ -351,18 +380,24 @@ lolor_storage_drop_check(Oid relid)
  *	replacements with it and leave pg_catalog without any lo_open() at all.
  *	The probe is the one lolor.is_enabled() uses.
  */
-static void
-lolor_extension_drop_check(Oid extoid)
+static bool
+lolor_orig_functions_present(void)
 {
 	Oid			argtypes[2] = {OIDOID, INT4OID};
 
+	return SearchSysCacheExists3(PROCNAMEARGSNSP,
+								 CStringGetDatum("lo_open_orig"),
+								 PointerGetDatum(buildoidvector(argtypes, 2)),
+								 ObjectIdGetDatum(PG_CATALOG_NAMESPACE));
+}
+
+static void
+lolor_extension_drop_check(Oid extoid)
+{
 	if (extoid != get_extension_oid(EXTENSION_NAME, true))
 		return;
 
-	if (SearchSysCacheExists3(PROCNAMEARGSNSP,
-							  CStringGetDatum("lo_open_orig"),
-							  PointerGetDatum(buildoidvector(argtypes, 2)),
-							  ObjectIdGetDatum(PG_CATALOG_NAMESPACE)))
+	if (lolor_orig_functions_present())
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				 errmsg("cannot drop extension \"%s\" while it is enabled",
@@ -407,8 +442,9 @@ lolor_object_access(ObjectAccessType access, Oid classId, Oid objectId,
  *	Decide whether the DDL about to run will remove the lolor extension.
  *
  *	DROP EXTENSION is the obvious spelling, but the extension also goes away
- *	through DROP SCHEMA lolor CASCADE and DROP OWNED BY <extension owner>,
- *	which reach it by dependency cascade rather than by naming it.  Missing one
+ *	through DROP SCHEMA lolor CASCADE and DROP OWNED BY the extension or
+ *	schema owner, which reach it by dependency cascade rather than by naming
+ *	it.  Missing one
  *	is not cosmetic: the large objects would be destroyed along with the lolor
  *	tables and the renamed pg_catalog functions never restored, leaving a
  *	database with no working lo_open().
@@ -453,15 +489,25 @@ lolor_is_being_dropped(Node *parsetree)
 	{
 		DropOwnedStmt *stmt = (DropOwnedStmt *) parsetree;
 		Oid			extowner = lolor_extension_owner();
+		Oid			nspowner = lolor_schema_owner();
 
 		if (!OidIsValid(extowner))
 			return false;
 
+		/*
+		 * The extension goes with its owner.  It also goes with the schema's
+		 * owner, when ALTER SCHEMA lolor OWNER TO moved the schema to another
+		 * role, but only under CASCADE: a plain DROP OWNED cannot remove a
+		 * schema that still holds the extension and is rejected anyway.
+		 */
 		foreach(lc, stmt->roles)
 		{
 			RoleSpec   *rolespec = lfirst_node(RoleSpec, lc);
+			Oid			roleid = get_rolespec_oid(rolespec, true);
 
-			if (get_rolespec_oid(rolespec, true) == extowner)
+			if (roleid == extowner ||
+				(OidIsValid(nspowner) && roleid == nspowner &&
+				 stmt->behavior == DROP_CASCADE))
 				return true;
 		}
 
@@ -507,6 +553,28 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	 */
 	if (!lolor_is_being_dropped(trigdata->parsetree))
 		PG_RETURN_NULL();
+
+	/*
+	 * lolor.allow_unsafe_drop means drop no matter what: the object access
+	 * hook lets the extension go, and nothing is checked or renamed here
+	 * either.  Say so if that leaves the native names parked.
+	 */
+	if (lolor_allow_unsafe_drop)
+	{
+		if (lolor_orig_functions_present())
+			ereport(WARNING,
+					(errmsg("lolor.allow_unsafe_drop is on: the native large object function names are not restored"),
+					 errhint("Rename the pg_catalog.lo_*_orig functions back by hand, or run lolor.disable() before the drop.")));
+		PG_RETURN_NULL();
+	}
+
+	/*
+	 * The hook refuses the drop while lolor storage holds objects, but only
+	 * when the table itself is deleted, after this trigger has run.  Check it
+	 * here first, with the hook's own message, so that a refused drop renames
+	 * nothing and names the real blocker.
+	 */
+	lolor_storage_drop_check(get_LOLOR_LargeObjectMetadataRelationId());
 
 	SPI_connect();
 	/*
