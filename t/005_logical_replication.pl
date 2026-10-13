@@ -192,6 +192,25 @@ my $sub_lo = $subscriber->safe_psql('postgres',
 is($sub_lo, $pub_lo,
 	"catalog consistency: pg_largeobject row count matches across nodes");
 
+# Dropping lolor while its tables are subscribed or published is refused: the
+# drop itself would succeed, and replication would break afterwards.
+my $ret;
+($ret, $stdout, $stderr) =
+  $subscriber->psql('postgres', "DROP EXTENSION lolor");
+isnt($ret, 0, "subscriber refuses to drop lolor while subscribed");
+like(
+	$stderr,
+	qr/cannot drop lolor while its tables are replicated.*subscription lolor_sub/s,
+	"the refusal names the subscription");
+
+($ret, $stdout, $stderr) =
+  $publisher->psql('postgres', "DROP EXTENSION lolor");
+isnt($ret, 0, "publisher refuses to drop lolor while published");
+like(
+	$stderr,
+	qr/cannot drop lolor while its tables are replicated.*publication lolor_pub/s,
+	"the refusal names the publication");
+
 $subscriber->stop;
 $publisher->stop;
 
