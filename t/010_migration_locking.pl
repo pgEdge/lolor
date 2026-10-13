@@ -48,6 +48,15 @@ like(
 	qr/while other sessions are connected to the database/,
 	"the refusal says why");
 $other->quit;
+# The backend exits after the client has gone; a migration issued at once
+# could still count it.
+$node->poll_query_until(
+	'postgres', qq(
+	SELECT count(*) = 0 FROM pg_stat_activity
+	 WHERE datname = current_database()
+	   AND backend_type = 'client backend'
+	   AND pid <> pg_backend_pid()))
+  or die "the other session's backend did not exit";
 
 # Once alone it proceeds, and for the window between that check and commit it
 # holds ShareRowExclusiveLock on both stores, which excludes ordinary large
