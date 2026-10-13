@@ -20,7 +20,11 @@ my ($result, $stdout, $stderr);
 
 # Prepare old node to be upgraded
 $old->init;
-$old->append_conf('postgresql.conf', qq{lolor.node = 1});
+$old->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
 $old->start;
 $old->safe_psql('postgres', "CREATE EXTENSION lolor");
 $old->safe_psql('postgres',
@@ -35,7 +39,11 @@ $old->safe_psql('postgres',
 $old->stop();
 
 $new->init;
-$new->append_conf('postgresql.conf', qq{lolor.node = 1});
+$new->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
 
 command_ok(
 	[

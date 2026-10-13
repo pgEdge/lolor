@@ -1,0 +1,683 @@
+/* lolor--1.2.3--1.3.0.sql */
+
+-- complain if script is sourced in psql, rather than via CREATE EXTENSION
+\echo Use "ALTER EXTENSION lolor UPDATE" to load this file. \quit
+
+-- Warn if there are active streaming replicas — they need lolor installed too
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_stat_replication WHERE state = 'streaming') THEN
+    RAISE NOTICE 'lolor: active streaming replica(s) detected. '
+      'Ensure the lolor extension is also installed on each replica, '
+      'otherwise large object operations will fail if a replica is promoted.';
+  END IF;
+END;
+$$;
+
+/*
+ * Restore the ACLs on the server-side file access functions.
+ *
+ * pg_catalog.lo_import() and lo_export() read and write files as the account
+ * PostgreSQL runs under, so core revokes EXECUTE on them from PUBLIC.  lolor
+ * replaces them by renaming the originals to *_orig and creating its own.  An
+ * ACL belongs to a function rather than to a name, so the restriction stayed
+ * on the parked original while each replacement was created with the default
+ * of EXECUTE TO PUBLIC.  Every version through 1.2.2 is affected.
+ *
+ * Revoke on both spellings, since the installation may be enabled or
+ * disabled.  Revoking on an already restricted function is a no-op.
+ */
+DO $$
+DECLARE
+  target text;
+BEGIN
+  FOREACH target IN ARRAY ARRAY[
+    'lo_import(text)',
+    'lo_import(text,oid)',
+    'lo_export(oid,text)',
+    'lolor_lo_import(text)',
+    'lolor_lo_import(text,oid)',
+    'lolor_lo_export(oid,text)'
+  ]
+  LOOP
+    IF to_regprocedure('pg_catalog.' || target) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION pg_catalog.%s FROM PUBLIC', target);
+    END IF;
+  END LOOP;
+END;
+$$;
+
+/*
+ * Large objects in lolor storage that refer to a role which no longer exists,
+ * as owner, grantee or grantor.
+ *
+ * Objects in lolor storage are rows in ordinary tables, so they cannot
+ * participate in pg_shdepend: DROP ROLE will not notice them the way it
+ * notices native large objects.  That is inherent to storing them outside the
+ * catalogs; this function makes the consequence findable, and fix_orphans()
+ * repairs it.  Joins pg_roles rather than pg_authid so that a grantee of
+ * EXECUTE can actually run it.
+ */
+CREATE FUNCTION lolor.check_orphans()
+RETURNS TABLE (loid oid, role_oid oid, role_kind text) AS $$
+  SELECT m.oid, m.lomowner, 'owner'
+  FROM lolor.pg_largeobject_metadata m
+  WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = m.lomowner)
+  UNION
+  SELECT m.oid, a.grantee, 'grantee'
+  FROM lolor.pg_largeobject_metadata m, pg_catalog.aclexplode(m.lomacl) a
+  WHERE a.grantee <> 0
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantee)
+  UNION
+  SELECT m.oid, a.grantor, 'grantor'
+  FROM lolor.pg_largeobject_metadata m, pg_catalog.aclexplode(m.lomacl) a
+  WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantor)
+  ORDER BY 1, 3, 2
+$$ LANGUAGE sql STABLE;
+
+REVOKE ALL ON FUNCTION lolor.check_orphans() FROM PUBLIC;
+
+/*
+ * Repair what check_orphans() reports.  Objects whose owner is gone go to
+ * new_owner, and the ACL is rebuilt the way core's aclnewowner() does it: the
+ * old owner is replaced by new_owner wherever it appears as grantee or
+ * grantor, entries that then coincide are merged, and only entries that still
+ * name a missing role are dropped.  Grants the old owner made therefore
+ * survive, as they do under REASSIGN OWNED.  Returns the number of objects
+ * changed.
+ *
+ * One UPDATE is essential: the ACL rewrite has to see the old owner, and a
+ * separate UPDATE of lomowner would already have lost it.
+ */
+CREATE FUNCTION lolor.fix_orphans(new_owner regrole)
+RETURNS bigint AS $$
+DECLARE
+  fixed bigint;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper) THEN
+    RAISE EXCEPTION 'must be superuser to repair orphaned large objects';
+  END IF;
+
+  WITH o AS (
+    SELECT m.oid, m.lomowner AS old_owner, m.lomacl,
+           NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = m.lomowner) AS owner_dead
+    FROM lolor.pg_largeobject_metadata m)
+  UPDATE lolor.pg_largeobject_metadata m
+     SET lomowner = CASE WHEN o.owner_dead THEN new_owner::oid ELSE m.lomowner END,
+         -- aclexplode() yields one row per privilege.  Substitute the owner,
+         -- OR the grant option per privilege where entries now coincide, and
+         -- rebuild exactly one aclitem per (grantee, grantor) through the
+         -- aclitem input syntax: an ACL must not hold two entries for the
+         -- same pair, since GRANT and REVOKE update only the first, and
+         -- makeaclitem() cannot mix grant options within one entry.  Large
+         -- objects carry only SELECT (r) and UPDATE (w).  An empty result is
+         -- NULL, meaning default privileges.
+         lomacl = (
+           SELECT array_agg(s.item ORDER BY s.grantee, s.grantor)
+           FROM (SELECT p.grantee, p.grantor,
+                        format('%s=%s/%s',
+                               CASE WHEN p.grantee = 0 THEN '' ELSE quote_ident(ge.rolname) END,
+                               string_agg(CASE p.privilege_type WHEN 'SELECT' THEN 'r' WHEN 'UPDATE' THEN 'w' END
+                                          || CASE WHEN p.grantable THEN '*' ELSE '' END,
+                                          '' ORDER BY p.privilege_type),
+                               quote_ident(gr.rolname))::pg_catalog.aclitem AS item
+                 FROM (SELECT CASE WHEN o.owner_dead AND a.grantee = o.old_owner
+                                   THEN new_owner::oid ELSE a.grantee END AS grantee,
+                              CASE WHEN o.owner_dead AND a.grantor = o.old_owner
+                                   THEN new_owner::oid ELSE a.grantor END AS grantor,
+                              a.privilege_type,
+                              bool_or(a.is_grantable) AS grantable
+                       FROM pg_catalog.aclexplode(o.lomacl) a
+                       GROUP BY 1, 2, 3) p
+                 LEFT JOIN pg_catalog.pg_roles ge ON ge.oid = p.grantee
+                 JOIN pg_catalog.pg_roles gr ON gr.oid = p.grantor
+                 WHERE p.grantee = 0 OR ge.oid IS NOT NULL
+                 GROUP BY p.grantee, p.grantor, ge.rolname, gr.rolname) s)
+    FROM o
+   WHERE m.oid = o.oid
+     AND (o.owner_dead
+          OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(o.lomacl) a
+                     WHERE (a.grantee <> 0
+                            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantee))
+                        OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantor)));
+  GET DIAGNOSTICS fixed = ROW_COUNT;
+
+  RETURN fixed;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
+
+REVOKE ALL ON FUNCTION lolor.fix_orphans(regrole) FROM PUBLIC;
+
+/*
+ * Remove the bogus pg_shdepend rows left by earlier versions.
+ *
+ * Through 1.2.2, creating a large object recorded a pg_shdepend row whose
+ * classId was the OID of lolor.pg_largeobject -- an ordinary table, not a
+ * catalog the dependency machinery can describe.  DROP ROLE on any role that
+ * had created one failed with "unrecognized object class", and the rows were
+ * never removed.
+ *
+ * pg_shdepend is shared across the cluster, so restrict the delete to this
+ * database: the same classId in another database is an unrelated relation.
+ */
+DELETE FROM pg_catalog.pg_shdepend
+WHERE dbid = (SELECT oid FROM pg_catalog.pg_database
+               WHERE datname = current_database())
+  AND classid IN ('lolor.pg_largeobject'::regclass,
+                  'lolor.pg_largeobject_metadata'::regclass);
+
+/*
+ * Hardened enable / disable / is_enabled.
+ */
+
+/*
+ * Refuse unless called from a client session that is the only one connected
+ * to this database.
+ *
+ * Renaming the pg_catalog large object functions cannot be made atomic for
+ * other backends: a rename keeps the function OID, so a session that has
+ * already resolved lo_open() keeps calling the previous implementation, and
+ * neither cached plans nor libpq's fastpath OIDs are invalidated.  Require
+ * sole access instead, as ALTER DATABASE ... RENAME does.  This is a snapshot
+ * of pg_stat_activity, so a session connecting in the same instant is not
+ * excluded; that window is why the migration also takes its own locks.
+ */
+CREATE OR REPLACE FUNCTION lolor._require_no_other_sessions(what text)
+RETURNS void AS $$
+DECLARE
+  n    int;
+  self text;
+BEGIN
+  -- A background worker, such as an apply worker executing replicated DDL,
+  -- is not a client session.  These operations are node-local and have to be
+  -- run on each node directly; replicating them is unsupported, so refuse
+  -- rather than apply them half way.
+  SELECT backend_type INTO self
+  FROM pg_catalog.pg_stat_activity
+  WHERE pid = pg_backend_pid();
+
+  IF self IS DISTINCT FROM 'client backend' THEN
+    RAISE EXCEPTION 'cannot % from a %', what, coalesce(self, 'non-client process')
+      USING HINT = 'Run it from a client session connected directly to this node.';
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM pg_catalog.pg_stat_activity
+  WHERE datname = current_database()
+    AND backend_type = 'client backend'
+    AND pid <> pg_backend_pid();
+
+  IF n > 0 THEN
+    RAISE EXCEPTION 'cannot % while other sessions are connected to the database', what
+      USING DETAIL = CASE WHEN n = 1 THEN '1 other session is connected.'
+                          ELSE n || ' other sessions are connected.' END,
+            HINT = 'Disconnect them first. A session that already resolved the '
+                   'large object functions keeps calling the previous implementation.';
+  END IF;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
+
+REVOKE ALL ON FUNCTION lolor._require_no_other_sessions(text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION lolor.is_enabled()
+RETURNS boolean AS $$
+DECLARE
+  parked_present boolean;
+  orig_present   boolean;
+BEGIN
+  -- Exact signatures, qualified to pg_catalog: see the note in lolor.enable().
+  parked_present := to_regprocedure('pg_catalog.lolor_lo_open(oid,int4)') IS NOT NULL;
+  orig_present   := to_regprocedure('pg_catalog.lo_open_orig(oid,int4)') IS NOT NULL;
+
+  IF parked_present = orig_present THEN
+    RAISE EXCEPTION 'lolor is in inconsistent state'
+      USING DETAIL = format('pg_catalog.lolor_lo_open present: %s; pg_catalog.lo_open_orig present: %s',
+                            parked_present, orig_present);
+  END IF;
+
+  -- Our functions parked under lolor_* means the native ones are in place.
+  RETURN NOT parked_present;
+END;
+$$ LANGUAGE plpgsql STRICT STABLE;
+
+
+/*
+ * Disable lolor functionality.
+ *
+ * Parks the lolor implementations under pg_catalog.lolor_* and restores the
+ * native pg_catalog names from their *_orig parking spot.  Creates and drops
+ * nothing.  Returns true on success, false on a handled no-op.
+ */
+CREATE OR REPLACE FUNCTION lolor.disable()
+RETURNS boolean AS $$
+BEGIN
+  PERFORM lolor._require_no_other_sessions('disable lolor');
+
+  -- The probes below are a check-then-act, but no lock is needed: the whole
+  -- body runs in one transaction, so a concurrent caller that loses the race
+  -- fails on a rename and rolls back, leaving the state consistent.
+  -- Probe exact signatures in pg_catalog.  Earlier versions matched on
+  -- proname alone across every schema, so any user with CREATE on any schema
+  -- could squat 'lolor_lo_open' and wedge lolor into a permanent
+  -- 'inconsistent state', which also blocked DROP EXTENSION.
+  IF to_regprocedure('pg_catalog.lo_close_orig(int4)') IS NULL THEN
+    RAISE NOTICE 'lolor is already disabled';
+    RETURN false;
+  END IF;
+  IF to_regprocedure('pg_catalog.lolor_lo_open(oid,int4)') IS NOT NULL THEN
+    RAISE NOTICE 'lolor.disable() has been called before';
+    RETURN false;
+  END IF;
+
+  ALTER FUNCTION pg_catalog.lo_open(oid, int4) RENAME TO lolor_lo_open;
+  ALTER FUNCTION pg_catalog.lo_open_orig(oid, int4) RENAME TO lo_open;
+  ALTER FUNCTION pg_catalog.lo_close(int4) RENAME TO lolor_lo_close;
+  ALTER FUNCTION pg_catalog.lo_close_orig(int4) RENAME TO lo_close;
+  ALTER FUNCTION pg_catalog.lo_creat(integer) RENAME TO lolor_lo_creat;
+  ALTER FUNCTION pg_catalog.lo_creat_orig(integer) RENAME TO lo_creat;
+  ALTER FUNCTION pg_catalog.lo_create(oid) RENAME TO lolor_lo_create;
+  ALTER FUNCTION pg_catalog.lo_create_orig(oid) RENAME TO lo_create;
+  ALTER FUNCTION pg_catalog.loread(integer, integer) RENAME TO lolor_loread;
+  ALTER FUNCTION pg_catalog.loread_orig(integer, integer) RENAME TO loread;
+  ALTER FUNCTION pg_catalog.lowrite(integer, bytea) RENAME TO lolor_lowrite;
+  ALTER FUNCTION pg_catalog.lowrite_orig(integer, bytea) RENAME TO lowrite;
+  ALTER FUNCTION pg_catalog.lo_export(oid, text) RENAME TO lolor_lo_export;
+  ALTER FUNCTION pg_catalog.lo_export_orig(oid, text) RENAME TO lo_export;
+  ALTER FUNCTION pg_catalog.lo_from_bytea(oid, bytea) RENAME TO lolor_lo_from_bytea;
+  ALTER FUNCTION pg_catalog.lo_from_bytea_orig(oid, bytea) RENAME TO lo_from_bytea;
+  ALTER FUNCTION pg_catalog.lo_get(oid) RENAME TO lolor_lo_get;
+  ALTER FUNCTION pg_catalog.lo_get_orig(oid) RENAME TO lo_get;
+  ALTER FUNCTION pg_catalog.lo_get(oid, bigint, integer) RENAME TO lolor_lo_get;
+  ALTER FUNCTION pg_catalog.lo_get_orig(oid, bigint, integer) RENAME TO lo_get;
+  ALTER FUNCTION pg_catalog.lo_import(text) RENAME TO lolor_lo_import;
+  ALTER FUNCTION pg_catalog.lo_import_orig(text) RENAME TO lo_import;
+  ALTER FUNCTION pg_catalog.lo_import(text, oid) RENAME TO lolor_lo_import;
+  ALTER FUNCTION pg_catalog.lo_import_orig(text, oid) RENAME TO lo_import;
+  ALTER FUNCTION pg_catalog.lo_lseek(integer, integer, integer) RENAME TO lolor_lo_lseek;
+  ALTER FUNCTION pg_catalog.lo_lseek_orig(integer, integer, integer) RENAME TO lo_lseek;
+  ALTER FUNCTION pg_catalog.lo_lseek64(integer, bigint, integer) RENAME TO lolor_lo_lseek64;
+  ALTER FUNCTION pg_catalog.lo_lseek64_orig(integer, bigint, integer) RENAME TO lo_lseek64;
+  ALTER FUNCTION pg_catalog.lo_put(oid, bigint, bytea) RENAME TO lolor_lo_put;
+  ALTER FUNCTION pg_catalog.lo_put_orig(oid, bigint, bytea) RENAME TO lo_put;
+  ALTER FUNCTION pg_catalog.lo_tell(integer) RENAME TO lolor_lo_tell;
+  ALTER FUNCTION pg_catalog.lo_tell_orig(integer) RENAME TO lo_tell;
+  ALTER FUNCTION pg_catalog.lo_tell64(integer) RENAME TO lolor_lo_tell64;
+  ALTER FUNCTION pg_catalog.lo_tell64_orig(integer) RENAME TO lo_tell64;
+  ALTER FUNCTION pg_catalog.lo_truncate(integer, integer) RENAME TO lolor_lo_truncate;
+  ALTER FUNCTION pg_catalog.lo_truncate_orig(integer, integer) RENAME TO lo_truncate;
+  ALTER FUNCTION pg_catalog.lo_truncate64(integer, bigint) RENAME TO lolor_lo_truncate64;
+  ALTER FUNCTION pg_catalog.lo_truncate64_orig(integer, bigint) RENAME TO lo_truncate64;
+  ALTER FUNCTION pg_catalog.lo_unlink(oid) RENAME TO lolor_lo_unlink;
+  ALTER FUNCTION pg_catalog.lo_unlink_orig(oid) RENAME TO lo_unlink;
+
+  -- Renaming changes which OID owns the name lo_open, and libpq caches the
+  -- large object fastpath OIDs per connection: sessions that touched a large
+  -- object before this call keep using the previous implementation.
+  RAISE NOTICE 'lolor: reconnect existing client sessions; they cache large object function OIDs';
+
+  RETURN true;
+END;
+$$ LANGUAGE plpgsql STRICT VOLATILE;
+
+
+/*
+ * Enable lolor functionality, undoing lolor.disable().
+ */
+CREATE OR REPLACE FUNCTION lolor.enable()
+RETURNS boolean AS $$
+BEGIN
+  PERFORM lolor._require_no_other_sessions('enable lolor');
+
+  -- The probes below are a check-then-act, but no lock is needed: the whole
+  -- body runs in one transaction, so a concurrent caller that loses the race
+  -- fails on a rename and rolls back, leaving the state consistent.
+  -- Probe exact signatures in pg_catalog.  Earlier versions matched on
+  -- proname alone across every schema, so any user with CREATE on any schema
+  -- could squat 'lolor_lo_open' and wedge lolor into a permanent
+  -- 'inconsistent state', which also blocked DROP EXTENSION.
+  IF to_regprocedure('pg_catalog.lolor_lo_open(oid,int4)') IS NULL THEN
+    RAISE NOTICE 'lolor is already enabled';
+    RETURN false;
+  END IF;
+  IF to_regprocedure('pg_catalog.lo_close_orig(int4)') IS NOT NULL THEN
+    RAISE NOTICE 'lolor.enable() has been called before';
+    RETURN false;
+  END IF;
+
+  ALTER FUNCTION pg_catalog.lo_open(oid, int4) RENAME TO lo_open_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_open(oid, int4) RENAME TO lo_open;
+  ALTER FUNCTION pg_catalog.lo_close(int4) RENAME TO lo_close_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_close(int4) RENAME TO lo_close;
+  ALTER FUNCTION pg_catalog.lo_creat(integer) RENAME TO lo_creat_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_creat(integer) RENAME TO lo_creat;
+  ALTER FUNCTION pg_catalog.lo_create(oid) RENAME TO lo_create_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_create(oid) RENAME TO lo_create;
+  ALTER FUNCTION pg_catalog.loread(integer, integer) RENAME TO loread_orig;
+  ALTER FUNCTION pg_catalog.lolor_loread(integer, integer) RENAME TO loread;
+  ALTER FUNCTION pg_catalog.lowrite(integer, bytea) RENAME TO lowrite_orig;
+  ALTER FUNCTION pg_catalog.lolor_lowrite(integer, bytea) RENAME TO lowrite;
+  ALTER FUNCTION pg_catalog.lo_export(oid, text) RENAME TO lo_export_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_export(oid, text) RENAME TO lo_export;
+  ALTER FUNCTION pg_catalog.lo_from_bytea(oid, bytea) RENAME TO lo_from_bytea_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_from_bytea(oid, bytea) RENAME TO lo_from_bytea;
+  ALTER FUNCTION pg_catalog.lo_get(oid) RENAME TO lo_get_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_get(oid) RENAME TO lo_get;
+  ALTER FUNCTION pg_catalog.lo_get(oid, bigint, integer) RENAME TO lo_get_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_get(oid, bigint, integer) RENAME TO lo_get;
+  ALTER FUNCTION pg_catalog.lo_import(text) RENAME TO lo_import_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_import(text) RENAME TO lo_import;
+  ALTER FUNCTION pg_catalog.lo_import(text, oid) RENAME TO lo_import_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_import(text, oid) RENAME TO lo_import;
+  ALTER FUNCTION pg_catalog.lo_lseek(integer, integer, integer) RENAME TO lo_lseek_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_lseek(integer, integer, integer) RENAME TO lo_lseek;
+  ALTER FUNCTION pg_catalog.lo_lseek64(integer, bigint, integer) RENAME TO lo_lseek64_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_lseek64(integer, bigint, integer) RENAME TO lo_lseek64;
+  ALTER FUNCTION pg_catalog.lo_put(oid, bigint, bytea) RENAME TO lo_put_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_put(oid, bigint, bytea) RENAME TO lo_put;
+  ALTER FUNCTION pg_catalog.lo_tell(integer) RENAME TO lo_tell_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_tell(integer) RENAME TO lo_tell;
+  ALTER FUNCTION pg_catalog.lo_tell64(integer) RENAME TO lo_tell64_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_tell64(integer) RENAME TO lo_tell64;
+  ALTER FUNCTION pg_catalog.lo_truncate(integer, integer) RENAME TO lo_truncate_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_truncate(integer, integer) RENAME TO lo_truncate;
+  ALTER FUNCTION pg_catalog.lo_truncate64(integer, bigint) RENAME TO lo_truncate64_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_truncate64(integer, bigint) RENAME TO lo_truncate64;
+  ALTER FUNCTION pg_catalog.lo_unlink(oid) RENAME TO lo_unlink_orig;
+  ALTER FUNCTION pg_catalog.lolor_lo_unlink(oid) RENAME TO lo_unlink;
+
+  -- Renaming changes which OID owns the name lo_open, and libpq caches the
+  -- large object fastpath OIDs per connection: sessions that touched a large
+  -- object before this call keep using the previous implementation.
+  RAISE NOTICE 'lolor: reconnect existing client sessions; they cache large object function OIDs';
+
+  RETURN true;
+END;
+$$ LANGUAGE plpgsql STRICT VOLATILE;
+
+/*
+ * Re-register the drop cleanup for every spelling of the drop.
+ *
+ * DROP SCHEMA lolor CASCADE and DROP OWNED BY reach the extension by
+ * dependency cascade rather than as DROP EXTENSION, and fire under their own
+ * command tags.  Without them the cleanup never runs, the large objects are
+ * destroyed with the lolor tables, and pg_catalog is left without a working
+ * lo_open().  Tags cannot be altered in place, so re-create the trigger.
+ */
+DROP EVENT TRIGGER lo_on_drop_extension;
+CREATE EVENT TRIGGER lo_on_drop_extension
+	ON ddl_command_start
+	WHEN tag IN ('DROP EXTENSION', 'DROP SCHEMA', 'DROP OWNED')
+	EXECUTE FUNCTION pg_catalog.lo_on_drop_extension();
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+
+/*
+ * Comment parking.
+ *
+ * COMMENT ON LARGE OBJECT stores its text in pg_description keyed by
+ * (classoid = 'pg_largeobject', objoid = loid).  While an object lives in
+ * lolor storage there is no catalog object for that row to describe, so the
+ * comment is parked here and restored on the way back.  Without this it is
+ * silently lost the first time an object is migrated.
+ */
+CREATE TABLE lolor.pg_largeobject_description(
+	loid		oid NOT NULL,
+	description	text NOT NULL,
+	CONSTRAINT pg_largeobject_description_pkey PRIMARY KEY (loid));
+SELECT pg_catalog.pg_extension_config_dump('lolor.pg_largeobject_description', '');
+
+/*
+ * Storage relocation mechanism.
+ *
+ * lolor.migrate_storage() moves every large object from one store to the
+ * other by copying tuples directly between the two relations, which have
+ * identical layouts by construction.  It carries ownership, ACLs and comments
+ * across, verifies the layouts at run time, and removes native objects
+ * through the same deletion path DROP uses.
+ *
+ * This is the mechanism only.  Policy -- privileges and the interaction with
+ * logical replication -- lives in the wrappers below, which are the supported
+ * entry points.
+ */
+CREATE FUNCTION lolor.migrate_storage(to_native boolean)
+	RETURNS bigint
+	AS 'MODULE_PATHNAME', 'lolor_migrate_storage'
+	LANGUAGE C STRICT VOLATILE;
+
+REVOKE ALL ON FUNCTION lolor.migrate_storage(boolean) FROM PUBLIC;
+
+/*
+ * Shared replication guard.
+ *
+ * Both migration directions face the same question: the row movement is a
+ * node-local storage relocation, but logical decoding cannot tell that apart
+ * from ordinary DML.  If a subscriber decodes it, the two nodes diverge.
+ *
+ * Returns true when repair mode was engaged and the caller must turn it off,
+ * false when no suppression was needed, and NULL when the migration must be
+ * refused.  NULL is only ever returned when strict_mode is false; a strict
+ * caller gets an ERROR instead.
+ */
+CREATE FUNCTION lolor._migration_guard(strict_mode boolean, refuse_hint text)
+RETURNS boolean AS $$
+DECLARE
+  lr_slots      boolean;
+  foreign_slots boolean;
+  spock_ready   boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_replication_slots
+     WHERE slot_type = 'logical' AND database = current_database()
+  ) INTO lr_slots;
+
+  -- Nothing decodes this database: nothing to suppress.
+  IF NOT lr_slots THEN
+    RETURN false;
+  END IF;
+
+  -- Use spock only when it is fully operational: the extension is installed
+  -- (pg_extension is superuser-gated, so the schema name cannot be squatted
+  -- by an unprivileged user), the function exists (older spock versions lack
+  -- it) and the GUC exists (the library is actually preloaded).
+  spock_ready :=
+       EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'spock')
+   AND to_regprocedure('spock.repair_mode(boolean)') IS NOT NULL
+   AND current_setting('spock.replication_repair_mode', true) IS NOT NULL;
+
+  IF NOT spock_ready THEN
+    IF strict_mode THEN
+      RAISE EXCEPTION 'cannot migrate large objects: logical replication slot(s) exist'
+        USING DETAIL = 'Without spock the migration DML cannot be excluded from '
+                       'logical decoding, so subscribers would receive this '
+                       'node-local storage relocation as ordinary row changes',
+              HINT = refuse_hint;
+    END IF;
+    RAISE WARNING 'not migrating: logical replication slot(s) exist'
+      USING DETAIL = 'This call is a no-op: no large objects were migrated',
+            HINT = refuse_hint;
+    RETURN NULL;
+  END IF;
+
+  -- spock.repair_mode() suppresses spock's own 'spock_output' plugin only;
+  -- any other plugin decoding this database would still see the migration.
+  SELECT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_replication_slots
+     WHERE slot_type = 'logical' AND database = current_database()
+       AND plugin <> 'spock_output'
+  ) INTO foreign_slots;
+
+  IF foreign_slots THEN
+    IF strict_mode THEN
+      RAISE EXCEPTION 'cannot migrate large objects: non-spock logical replication slot(s) exist'
+        USING DETAIL = 'spock repair mode silences only the spock_output plugin; a slot '
+                       'using another plugin (pgoutput, wal2json, decoderbufs, ...) would '
+                       'still decode the migration and diverge from this node',
+              HINT = refuse_hint;
+    END IF;
+    RAISE WARNING 'not migrating: non-spock logical replication slot(s) exist'
+      USING DETAIL = 'This call is a no-op: no large objects were migrated',
+            HINT = refuse_hint;
+    RETURN NULL;
+  END IF;
+
+  IF current_setting('spock.replication_repair_mode', true) = 'off' THEN
+    PERFORM spock.repair_mode(true);
+    RETURN true;
+  END IF;
+
+  -- Repair mode was already on; leave it to whoever turned it on.
+  RETURN false;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
+
+REVOKE ALL ON FUNCTION lolor._migration_guard(boolean, text) FROM PUBLIC;
+
+CREATE FUNCTION lolor.migrate_from_native(peer_oids oid[] DEFAULT NULL)
+RETURNS bigint AS $$
+DECLARE
+  lo_count       bigint;
+  repair_enabled boolean;
+  overlap        oid[];
+  labelled       bigint;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper) THEN
+    RAISE EXCEPTION 'lolor.migrate_from_native() requires superuser privileges';
+  END IF;
+
+  PERFORM lolor._require_no_other_sessions('migrate large objects');
+
+  SELECT count(*) INTO lo_count FROM pg_catalog.pg_largeobject_metadata;
+
+  IF lo_count = 0 THEN
+    RAISE NOTICE 'no native large objects to migrate';
+    RETURN 0;
+  END IF;
+
+  -- Security labels have nowhere to live in lolor storage and, unlike
+  -- comments, cannot be parked and replayed: reinstating one has to go
+  -- through the label provider.  Refuse rather than discard them.
+  SELECT count(*) INTO labelled
+  FROM pg_catalog.pg_seclabel
+  WHERE classoid = 'pg_catalog.pg_largeobject'::regclass;
+
+  IF labelled > 0 THEN
+    RAISE EXCEPTION 'cannot migrate: % large object security label(s) present', labelled
+      USING DETAIL = 'lolor storage cannot represent security labels, and they '
+                     'cannot be reinstated without their label provider',
+            HINT = 'Remove the labels with SECURITY LABEL ... IS NULL before migrating';
+  END IF;
+
+  /* Cross-node OID collision pre-flight; see the comment on this function. */
+  IF peer_oids IS NOT NULL THEN
+    SELECT array_agg(m.oid ORDER BY m.oid) INTO overlap
+    FROM pg_catalog.pg_largeobject_metadata m
+    WHERE m.oid = ANY (peer_oids);
+
+    IF overlap IS NOT NULL THEN
+      RAISE EXCEPTION 'cannot migrate: % OID(s) are also held natively by another node',
+        array_length(overlap, 1)
+        USING DETAIL = format('Colliding OID(s): %s', overlap),
+              HINT = 'Native OIDs are not node-encoded. Re-create the colliding objects '
+                     'under fresh OIDs on one of the nodes before migrating';
+    END IF;
+  END IF;
+
+  repair_enabled := lolor._migration_guard(
+      false,
+      'Drop the offending logical replication slots in this database and retry');
+
+  IF repair_enabled IS NULL THEN
+    RETURN -1;
+  END IF;
+
+  PERFORM lolor.migrate_storage(false);
+
+  -- Cover exactly the migration and nothing after it.  Error paths need no
+  -- cleanup: they abort the whole transaction.
+  IF repair_enabled THEN
+    PERFORM spock.repair_mode(false);
+  END IF;
+
+  RETURN lo_count;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
+
+/*
+ * lolor.migrate_to_native()
+ *
+ * Move every large object from lolor storage back into native storage.
+ *
+ * Run this before dropping the extension: the drop is refused while any
+ * object remains in lolor storage.  It does not require lolor to be enabled,
+ * since the movement is performed directly against the catalogs and never
+ * calls the renamed _orig functions.
+ *
+ * Failure is a hard ERROR, not a soft return: a refused migration must not
+ * look like an empty one.
+ */
+CREATE FUNCTION lolor.migrate_to_native()
+RETURNS bigint AS $$
+DECLARE
+  lo_count       bigint;
+  repair_enabled boolean;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper) THEN
+    RAISE EXCEPTION 'lolor.migrate_to_native() requires superuser privileges';
+  END IF;
+
+  PERFORM lolor._require_no_other_sessions('migrate large objects');
+
+  SELECT count(*) INTO lo_count FROM lolor.pg_largeobject_metadata;
+
+  IF lo_count = 0 THEN
+    RAISE NOTICE 'no lolor large objects to migrate';
+    RETURN 0;
+  END IF;
+
+  repair_enabled := lolor._migration_guard(
+      true,
+      'Drop the offending logical replication slots in this database and retry');
+
+  PERFORM lolor.migrate_storage(true);
+
+  IF repair_enabled THEN
+    PERFORM spock.repair_mode(false);
+  END IF;
+
+  RETURN lo_count;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
+
+REVOKE ALL ON FUNCTION lolor.migrate_from_native(oid[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION lolor.migrate_to_native() FROM PUBLIC;
+
+/*
+ * Native large object OIDs held by this node, for the cross-node pre-flight
+ * of lolor.migrate_from_native().
+ */
+CREATE FUNCTION lolor.native_lo_oids()
+RETURNS SETOF oid AS $$
+  SELECT oid FROM pg_catalog.pg_largeobject_metadata ORDER BY oid
+$$ LANGUAGE sql STABLE;
+
+/*
+ * Per-object digest of lolor storage, so that convergence across nodes can be
+ * checked instead of assumed.  Compare the output on every node after
+ * migrating: because the movement is hidden from replication, divergence is
+ * otherwise silent until a later conflict.
+ *
+ * This reads every page and is deliberately not cheap; run it as a check, not
+ * on a schedule.
+ */
+CREATE FUNCTION lolor.digest()
+RETURNS TABLE (loid oid, lomowner name, npages bigint, nbytes bigint, digest text)
+AS $$
+  SELECT m.oid,
+         pg_catalog.pg_get_userbyid(m.lomowner),
+         count(d.pageno),
+         coalesce(sum(length(d.data)), 0),
+         md5(coalesce(string_agg(md5(d.data), ',' ORDER BY d.pageno), ''))
+  FROM lolor.pg_largeobject_metadata m
+  LEFT JOIN lolor.pg_largeobject d ON d.loid = m.oid
+  GROUP BY m.oid, m.lomowner
+  ORDER BY m.oid
+$$ LANGUAGE sql STABLE;

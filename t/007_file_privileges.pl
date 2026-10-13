@@ -16,7 +16,11 @@ my $node = PostgreSQL::Test::Cluster->new('privileges');
 my ($result, $stdout, $stderr);
 
 $node->init;
-$node->append_conf('postgresql.conf', qq{lolor.node = 1});
+$node->append_conf(
+	'postgresql.conf', qq{
+shared_preload_libraries = 'lolor'
+lolor.node = 1
+});
 $node->start;
 $node->safe_psql('postgres', "CREATE EXTENSION lolor");
 $node->safe_psql('postgres', "CREATE ROLE lo_plain LOGIN");
