@@ -15,6 +15,7 @@
 #include "postgres.h"
 
 #include "miscadmin.h"
+#include "pgstat.h"
 #include "fmgr.h"
 #include "access/xact.h"
 #include "access/genam.h"
@@ -535,6 +536,9 @@ Datum
 lolor_on_drop_extension(PG_FUNCTION_ARGS)
 {
 	EventTriggerData *trigdata;
+	int			ret;
+	int64		others;
+	bool		isnull;
 
 	/* Make sure we are called as an event trigger */
 	if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
@@ -576,32 +580,68 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	 */
 	lolor_storage_drop_check(get_LOLOR_LargeObjectMetadataRelationId());
 
-	SPI_connect();
+	/*
+	 * A disabled lolor renames nothing, so the rest only applies while the
+	 * native functions are still parked under their _orig names.
+	 */
+	if (!lolor_orig_functions_present())
+		PG_RETURN_NULL();
+
 	/*
 	 * disable() renames the native functions back.  That has the same
-	 * requirements whether the user calls it or the drop does: no other
-	 * session may be connected, because a renamed function keeps its OID and
-	 * other sessions keep calling the previous implementation, and it has to
-	 * run from a client session.  Check them here first, under the drop's own
-	 * name, so that the refusal says what was refused.  A disabled lolor
-	 * renames nothing, so the check only applies while it is enabled.  The
-	 * helper exists from 1.3.0; dropping an older installed version runs that
-	 * version's disable(), which has no such requirement.
+	 * requirements whether the user calls it or the drop does: it has to run
+	 * from a client session, and no other session may be connected, because a
+	 * renamed function keeps its OID and other sessions keep calling the
+	 * previous implementation.  Check them here, under the drop's own name,
+	 * so that the refusal says what was refused.  The checks live in C rather
+	 * than in the installed disable(), which may still be an older version
+	 * without them when the library is upgraded before the extension.
 	 */
-	if (SPI_execute("SELECT 1 FROM pg_proc p "
-					"JOIN pg_namespace n ON n.oid = p.pronamespace "
-					"WHERE n.nspname = 'lolor' "
-					"AND p.proname = '_require_no_other_sessions'",
-					true, 1) == SPI_OK_SELECT &&
-		SPI_processed > 0)
-		SPI_execute("SELECT CASE WHEN lolor.is_enabled() THEN "
-					"lolor._require_no_other_sessions("
-					"'drop the lolor extension') END",
-					false, 0);
+	if (MyBackendType != B_BACKEND)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("cannot drop the lolor extension from a %s",
+						GetBackendTypeDesc(MyBackendType)),
+				 errhint("Run it from a client session connected directly to this node.")));
 
-	SPI_execute("SELECT CASE WHEN lolor.is_enabled() "
-				"THEN lolor.disable() ELSE true END",
-				false, 0);
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	/*
+	 * Within a transaction pg_stat_activity is read once and then retained,
+	 * so an earlier look at it in this transaction would hide a session that
+	 * connected since.  Drop that snapshot and count afresh.
+	 */
+	pgstat_clear_snapshot();
+
+	ret = SPI_execute("SELECT count(*) FROM pg_catalog.pg_stat_activity "
+					  "WHERE datname = pg_catalog.current_database() "
+					  "AND backend_type = 'client backend' "
+					  "AND pid <> pg_catalog.pg_backend_pid()",
+					  true, 1);
+	if (ret != SPI_OK_SELECT || SPI_processed != 1)
+		elog(ERROR, "could not count other sessions: %s",
+			 SPI_result_code_string(ret));
+
+	others = DatumGetInt64(SPI_getbinval(SPI_tuptable->vals[0],
+										 SPI_tuptable->tupdesc, 1, &isnull));
+	if (isnull)
+		elog(ERROR, "could not count other sessions");
+
+	if (others > 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_IN_USE),
+				 errmsg("cannot drop the lolor extension while other sessions are connected to the database"),
+				 errdetail_plural("%lld other session is connected.",
+								  "%lld other sessions are connected.",
+								  (unsigned long) others, (long long) others),
+				 errhint("Disconnect them first. A session that already resolved the "
+						 "large object functions keeps calling the previous implementation.")));
+
+	ret = SPI_execute("SELECT lolor.disable()", false, 0);
+	if (ret != SPI_OK_SELECT)
+		elog(ERROR, "lolor.disable() failed: %s", SPI_result_code_string(ret));
+
 	SPI_finish();
 
 	PG_RETURN_NULL();

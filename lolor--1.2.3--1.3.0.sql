@@ -201,6 +201,10 @@ BEGIN
       USING HINT = 'Run it from a client session connected directly to this node.';
   END IF;
 
+  -- Within a transaction pg_stat_activity is read once and then retained, so
+  -- an earlier look at it would hide a session that connected since.
+  PERFORM pg_catalog.pg_stat_clear_snapshot();
+
   SELECT count(*) INTO n
   FROM pg_catalog.pg_stat_activity
   WHERE datname = current_database()
