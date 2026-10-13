@@ -605,6 +605,7 @@ DECLARE
   r_meta          record;
   r_data          record;
   fd              integer;
+  owner_name      name;
   repair_enabled  boolean := false;
   lr_slots_exists boolean := false;
   foreign_lr_slots_exists boolean := false;
@@ -727,9 +728,22 @@ BEGIN
     END LOOP;
     PERFORM pg_catalog.lo_close_orig(fd);
 
-    -- Restore ownership and ACL (lo_create sets current user as owner)
+    -- lo_create_orig() made the migrating user the owner, in lomowner and
+    -- in pg_shdepend.  Restore the real owner through ALTER LARGE OBJECT so
+    -- that pg_shdepend follows; a raw update of lomowner would leave DROP
+    -- OWNED BY the migrating user taking the object with it.
+    SELECT rolname INTO owner_name
+    FROM pg_catalog.pg_roles WHERE oid = r_meta.lomowner;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'large object % is owned by role %, which no longer exists',
+        r_meta.oid, r_meta.lomowner
+        USING HINT = 'Run lolor.check_orphans() and lolor.fix_orphans(new_owner) first';
+    END IF;
+    EXECUTE format('ALTER LARGE OBJECT %s OWNER TO %I', r_meta.oid, owner_name);
+
+    -- Restore the ACL
     UPDATE pg_catalog.pg_largeobject_metadata
-    SET lomowner = r_meta.lomowner, lomacl = r_meta.lomacl
+    SET lomacl = r_meta.lomacl
     WHERE pg_catalog.pg_largeobject_metadata.oid = r_meta.oid;
   END LOOP;
 

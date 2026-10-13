@@ -431,6 +431,34 @@ SELECT lo_unlink(:orphan_oid);
 SELECT count(*) AS orphans_cleared FROM lolor.check_orphans();
 
 --
+-- migrate_to_native() must leave the original owner in pg_shdepend, not the
+-- user who ran the migration.  lo_create_orig() records its caller there, and
+-- a raw update of lomowner afterwards does not correct it, so DROP OWNED BY
+-- the migrating user would take the object with it.
+--
+CREATE ROLE lolor_creator SUPERUSER;
+CREATE ROLE lolor_migrator SUPERUSER;
+SET ROLE lolor_creator;
+SELECT lo_from_bytea(0, 'owned by the creator') AS creator_oid \gset
+RESET ROLE;
+SET ROLE lolor_migrator;
+SELECT lolor.migrate_to_native();
+RESET ROLE;
+SELECT pg_get_userbyid(lomowner) AS owner
+  FROM pg_catalog.pg_largeobject_metadata WHERE oid = :creator_oid;
+SELECT a.rolname || ':' || d.deptype::text AS shdep
+  FROM pg_shdepend d JOIN pg_authid a ON a.oid = d.refobjid
+ WHERE d.classid = 'pg_largeobject'::regclass AND d.objid = :creator_oid
+   AND d.dbid = (SELECT oid FROM pg_database WHERE datname = current_database());
+DROP OWNED BY lolor_migrator;
+SELECT lolor.disable();
+SELECT convert_from(lo_get(:creator_oid), 'UTF8') AS survived_drop_owned;
+SELECT lo_unlink(:creator_oid);
+SELECT lolor.enable();
+DROP ROLE lolor_migrator;
+DROP ROLE lolor_creator;
+
+--
 -- fix_orphans() must behave like REASSIGN OWNED: grants the dead owner made
 -- survive with the new owner as grantor, an entry the new owner already held
 -- merges into its owner entry, and only entries that still name a missing
