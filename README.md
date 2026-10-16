@@ -73,8 +73,9 @@ If you remove the extension, the renamed `pg_catalog.lo_*_orig` functions are re
 When you replicate large objects with Spock, the tables `pg_largeobject` and `pg_largeobject_metadata` must belong to your replication set. Connect to the lolor database and add them with `spock.repset_add_table`:
 
 ```sql
-SELECT spock.repset_add_table('spock_replication_set', 'lolor.pg_largeobject');
-SELECT spock.repset_add_table('spock_replication_set', 'lolor.pg_largeobject_metadata');
+-- 'default' is Spock's built-in replication set; subscriptions consume it automatically.
+SELECT spock.repset_add_table('default', 'lolor.pg_largeobject');
+SELECT spock.repset_add_table('default', 'lolor.pg_largeobject_metadata');
 ```
 
 ### Migrating large objects
