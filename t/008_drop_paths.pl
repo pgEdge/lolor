@@ -154,6 +154,22 @@ is($node->safe_psql('postgres', "SELECT lolor.disable()"),
 	't', "disable() works once the other session is gone");
 is($node->safe_psql('postgres', "SELECT lolor.enable()"),
 	't', "and so does enable()");
+# pg_stat_activity is read once per transaction and then retained.  A session
+# that looked at it before another one connected must still be refused.
+my $main = $node->background_psql('postgres', on_error_stop => 0);
+$main->query_safe("BEGIN; SELECT count(*) FROM pg_stat_activity");
+$other = $node->background_psql('postgres');
+$other->query_safe("SELECT 1");
+$main->query("SELECT lolor.disable()");
+like(
+	$main->{stderr},
+	qr/while other sessions are connected to the database/,
+	"a stale activity snapshot does not let disable() through");
+$main->query("ROLLBACK");
+$main->quit;
+$other->quit;
+is($node->safe_psql('postgres', "SELECT lolor.is_enabled()"),
+	't', "and lolor is still enabled");
 $node->safe_psql('postgres', "DROP EXTENSION lolor");
 
 $node->stop;
