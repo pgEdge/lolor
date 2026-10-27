@@ -526,6 +526,40 @@ lolor_is_being_dropped(Node *parsetree)
 }
 
 /*
+ * Keep DROP EXTENSION lolor out of spock's DDL replication.
+ *
+ * Dropping lolor is node-local, like enable() and disable(): another node
+ * refuses the drop when it arrives through its apply worker, logs it as an
+ * exception and discards it, so replicating it only produces a failure there.
+ * spock decides whether to queue a statement after the statement has run, so
+ * turning spock.enable_ddl_replication off for the transaction here keeps the
+ * drop from being queued.  The setting is transaction-local, so it also
+ * covers any later DDL in the same transaction; the NOTICE says so.
+ *
+ * Nothing is done unless the setting exists and is on: without spock, or
+ * with DDL replication off, the drop is not replicated anyway.
+ */
+static void
+lolor_drop_not_replicated(void)
+{
+	const char *value;
+	bool		on;
+
+	value = GetConfigOption("spock.enable_ddl_replication", true, false);
+	if (value == NULL || !parse_bool(value, &on) || !on)
+		return;
+
+	(void) set_config_option("spock.enable_ddl_replication", "off",
+							 superuser() ? PGC_SUSET : PGC_USERSET,
+							 PGC_S_SESSION, GUC_ACTION_LOCAL,
+							 true, 0, false);
+
+	ereport(NOTICE,
+			(errmsg("lolor: DROP EXTENSION lolor is not replicated; drop the extension on each node"),
+			 errdetail("spock.enable_ddl_replication is off for the rest of this transaction.")));
+}
+
+/*
  * lolor_on_drop_extension
  *
  *	The install script replaces the pg_catalog large object functions by
@@ -573,6 +607,7 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 			ereport(WARNING,
 					(errmsg("lolor.allow_unsafe_drop is on: the native large object function names are not restored"),
 					 errhint("Rename the pg_catalog.lo_*_orig functions back by hand, or run lolor.disable() before the drop.")));
+		lolor_drop_not_replicated();
 		PG_RETURN_NULL();
 	}
 
@@ -611,6 +646,8 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 				"THEN lolor.disable() ELSE true END",
 				false, 0);
 	SPI_finish();
+
+	lolor_drop_not_replicated();
 
 	PG_RETURN_NULL();
 }

@@ -163,6 +163,24 @@ SELECT extname FROM pg_extension; -- check lolor removal
 SELECT convert_from(lo_get(:disabled_drop_oid), 'UTF8') AS survived_disabled_drop;
 SELECT lo_unlink(:disabled_drop_oid);
 
+-- DROP EXTENSION lolor is node-local, so with spock's DDL replication on it
+-- turns the setting off for the rest of its transaction instead of letting
+-- the drop be queued.  spock is not loaded here, so the setting is a
+-- placeholder; lolor only reads and sets it.  With the setting unset or off,
+-- as in every drop above, lolor leaves it alone and says nothing.
+CREATE EXTENSION lolor;
+SET spock.enable_ddl_replication = on;
+BEGIN;
+DROP EXTENSION lolor;
+SHOW spock.enable_ddl_replication;
+COMMIT;
+SHOW spock.enable_ddl_replication;
+SET spock.enable_ddl_replication = off;
+CREATE EXTENSION lolor;
+DROP EXTENSION lolor;
+SHOW spock.enable_ddl_replication;
+RESET spock.enable_ddl_replication;
+
 --
 -- Migration tests: migrate_from_native / migrate_to_native / DROP EXTENSION
 --
