@@ -441,6 +441,43 @@ SHOW spock.enable_ddl_replication;
  on
 (1 row)
 
+-- A statement that drops lolor together with other objects is refused while
+-- the setting is on, since turning it off would also keep the other drops
+-- from being replicated.  The refusal comes before anything is dropped.
+CREATE EXTENSION lolor;
+DROP EXTENSION lolor, plpgsql;
+ERROR:  cannot drop lolor together with other objects while spock.enable_ddl_replication is on
+DROP OWNED BY CURRENT_USER;
+ERROR:  cannot drop lolor together with other objects while spock.enable_ddl_replication is on
+-- CASCADE would also take a user's view that calls lolor's functions.
+CREATE VIEW lolor_dependent AS SELECT lo_get(0::oid) AS data;
+DROP EXTENSION lolor CASCADE;
+ERROR:  cannot drop lolor together with other objects while spock.enable_ddl_replication is on
+DROP SCHEMA lolor CASCADE;
+ERROR:  cannot drop lolor together with other objects while spock.enable_ddl_replication is on
+SELECT extname FROM pg_extension WHERE extname IN ('lolor', 'plpgsql') ORDER BY 1;
+ extname 
+---------
+ lolor
+ plpgsql
+(2 rows)
+
+SELECT count(*) AS view_kept FROM pg_class WHERE relname = 'lolor_dependent';
+ view_kept 
+-----------
+         1
+(1 row)
+
+SELECT lolor.is_enabled();
+ is_enabled 
+------------
+ t
+(1 row)
+
+DROP VIEW lolor_dependent;
+DROP EXTENSION lolor;
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+NOTICE:  lolor: DROP EXTENSION lolor is not replicated; drop the extension on each node
 SET spock.enable_ddl_replication = off;
 CREATE EXTENSION lolor;
 DROP EXTENSION lolor;

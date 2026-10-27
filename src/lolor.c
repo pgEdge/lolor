@@ -525,6 +525,53 @@ lolor_is_being_dropped(Node *parsetree)
 	return false;
 }
 
+/* Is spock's DDL replication on for this session? */
+static bool
+spock_ddl_replication_on(void)
+{
+	const char *value;
+	bool		on;
+
+	value = GetConfigOption("spock.enable_ddl_replication", true, false);
+	return value != NULL && parse_bool(value, &on) && on;
+}
+
+/*
+ * Refuse a statement that could drop anything besides lolor while spock's
+ * DDL replication is on.  Turning replication off for the drop covers the
+ * whole transaction, so any other object the statement removes would stay on
+ * the other nodes without a word.  DROP EXTENSION may name several
+ * extensions, CASCADE also removes the user's objects that depend on lolor's
+ * functions, DROP SCHEMA lolor CASCADE removes whatever the user put in the
+ * schema, and DROP OWNED BY removes everything the role owns.  Only a plain
+ * DROP EXTENSION lolor is let through.  This holds with
+ * lolor.allow_unsafe_drop on as well: the hazard is replication, not lolor's
+ * own state.
+ */
+static void
+lolor_drop_check_alone(Node *parsetree)
+{
+	DropStmt   *stmt;
+
+	if (!spock_ddl_replication_on())
+		return;
+
+	if (IsA(parsetree, DropStmt))
+	{
+		stmt = (DropStmt *) parsetree;
+		if (stmt->removeType == OBJECT_EXTENSION &&
+			list_length(stmt->objects) == 1 &&
+			stmt->behavior == DROP_RESTRICT)
+			return;
+	}
+
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("cannot drop lolor together with other objects while spock.enable_ddl_replication is on"),
+			 errdetail("Dropping lolor is node-local and is not replicated, so the drops of the other objects would not be replicated either."),
+			 errhint("Drop the other objects first, then run DROP EXTENSION lolor on its own, without CASCADE.  To drop them all on this node only, SET spock.enable_ddl_replication = off first.")));
+}
+
 /*
  * Keep DROP EXTENSION lolor out of spock's DDL replication.
  *
@@ -542,11 +589,7 @@ lolor_is_being_dropped(Node *parsetree)
 static void
 lolor_drop_not_replicated(void)
 {
-	const char *value;
-	bool		on;
-
-	value = GetConfigOption("spock.enable_ddl_replication", true, false);
-	if (value == NULL || !parse_bool(value, &on) || !on)
+	if (!spock_ddl_replication_on())
 		return;
 
 	(void) set_config_option("spock.enable_ddl_replication", "off",
@@ -595,6 +638,8 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	 */
 	if (!lolor_is_being_dropped(trigdata->parsetree))
 		PG_RETURN_NULL();
+
+	lolor_drop_check_alone(trigdata->parsetree);
 
 	/*
 	 * lolor.allow_unsafe_drop means drop no matter what: the object access
