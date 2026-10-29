@@ -34,6 +34,7 @@
 #include "nodes/print.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
+#include "lib/stringinfo.h"
 #include "utils/fmgroids.h"
 #include "utils/inval.h"
 #include "utils/guc.h"
@@ -305,6 +306,17 @@ lolor_extension_owner(void)
 }
 
 /*
+ * lolor_namespace_oid
+ *
+ *	OID of the lolor schema; it exists whenever the extension does.
+ */
+static Oid
+lolor_namespace_oid(void)
+{
+	return get_namespace_oid(EXTENSION_NAME, false);
+}
+
+/*
  * lolor_schema_owner
  *
  *	Owner of the lolor schema, or InvalidOid when it does not exist.  It is
@@ -415,6 +427,126 @@ lolor_extension_drop_check(Oid extoid)
 }
 
 /*
+ * lolor_own_table
+ *
+ *	Is relid one of the extension's two tables?  A same-named table in a
+ *	squatted schema is not.
+ */
+static bool
+lolor_own_table(Oid relid)
+{
+	Oid			nspoid;
+	Oid			extoid;
+
+	nspoid = get_namespace_oid(EXTENSION_NAME, true);
+	if (!OidIsValid(nspoid) ||
+		(get_relname_relid(LOLOR_LARGEOBJECT_METADATA, nspoid) != relid &&
+		 get_relname_relid(LOLOR_LARGEOBJECT_CATALOG, nspoid) != relid))
+		return false;
+
+	extoid = get_extension_oid(EXTENSION_NAME, true);
+	return OidIsValid(extoid) &&
+		getExtensionOfObject(RelationRelationId, relid) == extoid;
+}
+
+/*
+ * lolor_replication_drop_check
+ *
+ *	Refuse to remove lolor while its tables are replicated.
+ *
+ *	Dropping a table out from under a publication, a subscription or a spock
+ *	replication set does not fail; what fails is everything afterwards.  The
+ *	other side keeps sending rows for a table this node no longer has and its
+ *	apply worker errors for good, or a subscription goes with DROP OWNED BY
+ *	and leaves its slot behind holding WAL.  Name the memberships and let the
+ *	operator take the tables out first.
+ *
+ *	With spock the memberships are kept on the provider, so on a subscriber
+ *	the tables show only in local_sync_status, as synchronized through a
+ *	subscription; a table added to a set after the initial sync has no row
+ *	there.
+ *
+ *	The event trigger calls this for its message, before anything is renamed;
+ *	the object access hook enforces it, since the trigger can be disabled or
+ *	skipped with event_triggers off, and a table can be dropped on its own
+ *	once taken out of the extension.  The hook runs before any object is
+ *	deleted, so the memberships are still there to be found.
+ */
+static void
+lolor_replication_drop_check(void)
+{
+	StringInfoData query;
+	int			ret;
+	bool		isnull;
+	Datum		members;
+
+	initStringInfo(&query);
+	appendStringInfo(&query,
+					 "SELECT pg_catalog.string_agg(what, ', ' ORDER BY what) FROM ("
+					 " SELECT 'publication ' || pg_catalog.quote_ident(p.pubname) AS what"
+					 "   FROM pg_catalog.pg_publication_rel pr"
+					 "   JOIN pg_catalog.pg_publication p ON p.oid = pr.prpubid"
+					 "   JOIN pg_catalog.pg_class c ON c.oid = pr.prrelid"
+					 "  WHERE c.relnamespace = %u"
+					 " UNION"
+					 " SELECT 'publication ' || pg_catalog.quote_ident(p.pubname)"
+					 "   FROM pg_catalog.pg_publication_namespace pn"
+					 "   JOIN pg_catalog.pg_publication p ON p.oid = pn.pnpubid"
+					 "  WHERE pn.pnnspid = %u"
+					 " UNION"
+					 " SELECT 'subscription ' || pg_catalog.quote_ident(s.subname)"
+					 "   FROM pg_catalog.pg_subscription_rel sr"
+					 "   JOIN pg_catalog.pg_subscription s ON s.oid = sr.srsubid"
+					 "   JOIN pg_catalog.pg_class c ON c.oid = sr.srrelid"
+					 "  WHERE c.relnamespace = %u",
+					 lolor_namespace_oid(), lolor_namespace_oid(),
+					 lolor_namespace_oid());
+
+	/* spock keeps its own catalog; look only when it is installed. */
+	if (OidIsValid(get_extension_oid("spock", true)))
+		appendStringInfo(&query,
+						 " UNION"
+						 " SELECT 'replication set ' || pg_catalog.quote_ident(rs.set_name)"
+						 "   FROM spock.replication_set_table rst"
+						 "   JOIN spock.replication_set rs ON rs.set_id = rst.set_id"
+						 "   JOIN pg_catalog.pg_class c ON c.oid = rst.set_reloid"
+						 "  WHERE c.relnamespace = %u"
+						 " UNION"
+						 " SELECT 'subscription ' || pg_catalog.quote_ident(s.sub_name)"
+						 "   FROM spock.local_sync_status l"
+						 "   JOIN spock.subscription s ON s.sub_id = l.sync_subid"
+						 "  WHERE l.sync_nspname = %s",
+						 lolor_namespace_oid(),
+						 quote_literal_cstr(EXTENSION_NAME));
+
+	appendStringInfoString(&query, ") x");
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	ret = SPI_execute(query.data, true, 1);
+	if (ret != SPI_OK_SELECT || SPI_processed != 1)
+		elog(ERROR, "could not look up replication memberships: %s",
+			 SPI_result_code_string(ret));
+
+	members = SPI_getbinval(SPI_tuptable->vals[0], SPI_tuptable->tupdesc,
+							1, &isnull);
+	if (!isnull)
+	{
+		char	   *list = TextDatumGetCString(members);
+
+		ereport(ERROR,
+				(errcode(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST),
+				 errmsg("cannot drop lolor while its tables are replicated"),
+				 errdetail("The lolor tables are part of %s.", list),
+				 errhint("Remove them from the replication set, publication or subscription first.")));
+	}
+
+	SPI_finish();
+	pfree(query.data);
+}
+
+/*
  * lolor_object_access
  *
  *	Guard every path that removes lolor: DROP EXTENSION, DROP SCHEMA CASCADE,
@@ -435,7 +567,11 @@ lolor_object_access(ObjectAccessType access, Oid classId, Oid objectId,
 	{
 		/* subId != 0 is a column being dropped, not the table. */
 		if (classId == RelationRelationId && subId == 0)
+		{
+			if (lolor_own_table(objectId))
+				lolor_replication_drop_check();
 			lolor_storage_drop_check(objectId);
+		}
 		else if (classId == ExtensionRelationId)
 			lolor_extension_drop_check(objectId);
 	}
@@ -577,9 +713,15 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	}
 
 	/*
+	 * Replication first: while the tables are replicated the migration that
+	 * would empty them is refused as well, so that is the blocker to name.
+	 */
+	lolor_replication_drop_check();
+
+	/*
 	 * The hook refuses the drop while lolor storage holds objects, but only
 	 * when the table itself is deleted, after this trigger has run.  Check it
-	 * here first, with the hook's own message, so that a refused drop renames
+	 * here too, with the hook's own message, so that a refused drop renames
 	 * nothing and names the real blocker.
 	 */
 	lolor_storage_drop_check(get_LOLOR_LargeObjectMetadataRelationId());

@@ -705,6 +705,27 @@ SELECT to_regprocedure('pg_catalog.lo_open(oid,int4)') IS NOT NULL AS lo_open_re
 SELECT to_regprocedure('pg_catalog.lo_open_orig(oid,int4)') IS NULL AS no_orig_left;
 DROP ROLE lolor_schema_owner;
 
+--
+-- Dropping lolor while its tables are replicated does not fail by itself; it
+-- breaks replication afterwards, so the drop is refused until the tables are
+-- taken out of the publication (or subscription, or spock replication set).
+--
+CREATE EXTENSION lolor;
+CREATE PUBLICATION lolor_test_pub FOR TABLE lolor.pg_largeobject, lolor.pg_largeobject_metadata;
+DROP EXTENSION lolor;
+DROP PUBLICATION lolor_test_pub;
+CREATE PUBLICATION lolor_test_pub FOR TABLES IN SCHEMA lolor;
+DROP SCHEMA lolor CASCADE;
+SELECT count(*) AS extension_still_installed FROM pg_extension WHERE extname = 'lolor';
+-- The event trigger gives the message early; the object access hook enforces
+-- it, so a disabled trigger changes nothing.
+ALTER EVENT TRIGGER lo_on_drop_extension DISABLE;
+DROP EXTENSION lolor;
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+SELECT count(*) AS extension_still_installed FROM pg_extension WHERE extname = 'lolor';
+DROP PUBLICATION lolor_test_pub;
+DROP EXTENSION lolor;
+
 -- DROP SCHEMA without CASCADE is RESTRICT and cannot remove a schema that
 -- still holds the extension's tables.  The cleanup must not run for a command
 -- that is going to be rejected.
