@@ -110,6 +110,24 @@ is( $node->safe_psql(
 	't',
 	"once alone, the drop restores the native functions");
 
+# Creating the extension renames the native functions like enable() does,
+# so it is refused the same way while another session is connected.
+$other = $node->background_psql('postgres');
+$other->query_safe("SELECT 1");
+($result, $stdout, $stderr) =
+  $node->psql('postgres', "CREATE EXTENSION lolor");
+isnt($result, 0, "CREATE EXTENSION is refused while another session is connected");
+like(
+	$stderr,
+	qr/cannot create the lolor extension while other sessions are connected/,
+	"and the refusal says why");
+is( $node->safe_psql(
+		'postgres', "SELECT count(*) FROM pg_extension WHERE extname = 'lolor'"),
+	'0',
+	"and nothing was installed");
+$other->quit;
+wait_for_other_sessions_to_exit();
+
 # A standalone backend is not refused as a non-client process: nothing else
 # can be connected to it.
 $node->safe_psql('postgres', "CREATE EXTENSION lolor");

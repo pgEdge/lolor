@@ -35,6 +35,7 @@
 #include "nodes/value.h"
 #include "nodes/print.h"
 #include "storage/lmgr.h"
+#include "tcop/utility.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -52,10 +53,18 @@ int32 lolor_node_id = 0;
 static bool lolor_allow_unsafe_drop = false;
 
 static object_access_hook_type prev_object_access_hook = NULL;
+static ProcessUtility_hook_type prev_ProcessUtility = NULL;
 
 void	_PG_init(void);
 static void lolor_object_access(ObjectAccessType access, Oid classId,
 								Oid objectId, int subId, void *arg);
+static void lolor_check_sole_session(const char *what);
+static void lolor_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
+								 bool readOnlyTree,
+								 ProcessUtilityContext context,
+								 ParamListInfo params,
+								 QueryEnvironment *queryEnv,
+								 DestReceiver *dest, QueryCompletion *qc);
 
 /* keep Oids of the large object catalog. */
 static Oid	LOLOR_LargeObjectRelationId = InvalidOid;
@@ -270,6 +279,48 @@ _PG_init(void)
 
 	prev_object_access_hook = object_access_hook;
 	object_access_hook = lolor_object_access;
+
+	prev_ProcessUtility = ProcessUtility_hook;
+	ProcessUtility_hook = lolor_ProcessUtility;
+}
+
+/*
+ * lolor_ProcessUtility
+ *
+ *	CREATE EXTENSION lolor renames the native large object functions like
+ *	lolor.enable() does, so it has the same requirement: no other session
+ *	may be connected, and it must run from a client session.  The check is
+ *	made here, before the command runs, since the object access hook for the
+ *	extension fires before its catalog row is visible, and the install script
+ *	cannot call a function that it is about to create.  An extension created
+ *	as a dependency of another one (CREATE EXTENSION ... CASCADE) does not
+ *	pass through here.
+ */
+static void
+lolor_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
+					 bool readOnlyTree, ProcessUtilityContext context,
+					 ParamListInfo params, QueryEnvironment *queryEnv,
+					 DestReceiver *dest, QueryCompletion *qc)
+{
+	Node	   *parsetree = pstmt->utilityStmt;
+
+	if (IsA(parsetree, CreateExtensionStmt))
+	{
+		CreateExtensionStmt *stmt = (CreateExtensionStmt *) parsetree;
+
+		/* IF NOT EXISTS on an installed lolor renames nothing. */
+		if (strcmp(stmt->extname, EXTENSION_NAME) == 0 &&
+			!(stmt->if_not_exists &&
+			  OidIsValid(get_extension_oid(EXTENSION_NAME, true))))
+			lolor_check_sole_session("create the lolor extension");
+	}
+
+	if (prev_ProcessUtility)
+		prev_ProcessUtility(pstmt, queryString, readOnlyTree, context,
+							params, queryEnv, dest, qc);
+	else
+		standard_ProcessUtility(pstmt, queryString, readOnlyTree, context,
+								params, queryEnv, dest, qc);
 }
 
 /*
@@ -340,11 +391,28 @@ lolor_schema_owner(void)
 static char *
 lolor_installed_version(void)
 {
+	char	   *version = NULL;
+#if PG_VERSION_NUM >= 180000
+	HeapTuple	tup;
+
+	/* pg_extension has a syscache from PG18 on. */
+	tup = SearchSysCache1(EXTENSIONNAME, CStringGetDatum(EXTENSION_NAME));
+	if (HeapTupleIsValid(tup))
+	{
+		Datum		datum;
+		bool		isnull;
+
+		datum = SysCacheGetAttr(EXTENSIONNAME, tup,
+								Anum_pg_extension_extversion, &isnull);
+		if (!isnull)
+			version = TextDatumGetCString(datum);
+		ReleaseSysCache(tup);
+	}
+#else
 	Relation	rel;
 	ScanKeyData skey[1];
 	SysScanDesc scan;
 	HeapTuple	tup;
-	char	   *version = NULL;
 
 	rel = table_open(ExtensionRelationId, AccessShareLock);
 
@@ -369,6 +437,7 @@ lolor_installed_version(void)
 
 	systable_endscan(scan);
 	table_close(rel, AccessShareLock);
+#endif
 
 	return version;
 }
@@ -437,6 +506,15 @@ lolor_check_sole_session(const char *what)
 	LockSharedObject(DatabaseRelationId, MyDatabaseId, 0, AccessExclusiveLock);
 
 	/*
+	 * Only client sessions are counted.  CountOtherDBBackends() would be
+	 * simpler, but it counts every process in the database, walsenders and
+	 * spock apply workers among them, and terminates autovacuum workers; on
+	 * a spock node lolor could then never be enabled, disabled or dropped
+	 * without disabling the subscriptions first.  Replication processes
+	 * apply rows to the tables and do not call the renamed functions.  It
+	 * also reports prepared transactions, which cannot call a function and
+	 * so do not matter here.
+	 *
 	 * Within a transaction pg_stat_activity is read once and then retained,
 	 * so an earlier look at it would hide a session that connected since.
 	 */
