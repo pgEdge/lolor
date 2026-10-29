@@ -525,6 +525,83 @@ lolor_is_being_dropped(Node *parsetree)
 	return false;
 }
 
+/* Is spock's DDL replication on for this session? */
+static bool
+spock_ddl_replication_on(void)
+{
+	const char *value;
+	bool		on;
+
+	value = GetConfigOption("spock.enable_ddl_replication", true, false);
+	return value != NULL && parse_bool(value, &on) && on;
+}
+
+/*
+ * Refuse a statement that could drop anything besides lolor while spock's
+ * DDL replication is on.  Turning replication off for the drop covers the
+ * whole transaction, so any other object the statement removes would stay on
+ * the other nodes without a word.  DROP EXTENSION may name several
+ * extensions, CASCADE also removes the user's objects that depend on lolor's
+ * functions, DROP SCHEMA lolor CASCADE removes whatever the user put in the
+ * schema, and DROP OWNED BY removes everything the role owns.  Only a plain
+ * DROP EXTENSION lolor is let through.  This holds with
+ * lolor.allow_unsafe_drop on as well: the hazard is replication, not lolor's
+ * own state.
+ */
+static void
+lolor_drop_check_alone(Node *parsetree)
+{
+	DropStmt   *stmt;
+
+	if (!spock_ddl_replication_on())
+		return;
+
+	if (IsA(parsetree, DropStmt))
+	{
+		stmt = (DropStmt *) parsetree;
+		if (stmt->removeType == OBJECT_EXTENSION &&
+			list_length(stmt->objects) == 1 &&
+			stmt->behavior == DROP_RESTRICT)
+			return;
+	}
+
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("cannot drop lolor together with other objects while spock.enable_ddl_replication is on"),
+			 errdetail("Dropping lolor is node-local and is not replicated, so the drops of the other objects would not be replicated either."),
+			 errhint("Drop the other objects first, then run DROP EXTENSION lolor on its own, without CASCADE.  To drop them all on this node only, SET spock.enable_ddl_replication = off first.")));
+}
+
+/*
+ * Keep DROP EXTENSION lolor out of spock's DDL replication.
+ *
+ * Dropping lolor is node-local, like enable() and disable(): another node
+ * refuses the drop when it arrives through its apply worker, logs it as an
+ * exception and discards it, so replicating it only produces a failure there.
+ * spock decides whether to queue a statement after the statement has run, so
+ * turning spock.enable_ddl_replication off for the transaction here keeps the
+ * drop from being queued.  The setting is transaction-local, so it also
+ * covers any later DDL in the same transaction; the NOTICE says so.
+ *
+ * Nothing is done unless the setting exists and is on: without spock, or
+ * with DDL replication off, the drop is not replicated anyway.
+ */
+static void
+lolor_drop_not_replicated(void)
+{
+	if (!spock_ddl_replication_on())
+		return;
+
+	(void) set_config_option("spock.enable_ddl_replication", "off",
+							 superuser() ? PGC_SUSET : PGC_USERSET,
+							 PGC_S_SESSION, GUC_ACTION_LOCAL,
+							 true, 0, false);
+
+	ereport(NOTICE,
+			(errmsg("lolor: DROP EXTENSION lolor is not replicated; drop the extension on each node"),
+			 errdetail("spock.enable_ddl_replication is off for the rest of this transaction.")));
+}
+
 /*
  * lolor_on_drop_extension
  *
@@ -562,6 +639,8 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	if (!lolor_is_being_dropped(trigdata->parsetree))
 		PG_RETURN_NULL();
 
+	lolor_drop_check_alone(trigdata->parsetree);
+
 	/*
 	 * lolor.allow_unsafe_drop means drop no matter what: the object access
 	 * hook lets the extension go, and nothing is checked or renamed here
@@ -573,6 +652,7 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 			ereport(WARNING,
 					(errmsg("lolor.allow_unsafe_drop is on: the native large object function names are not restored"),
 					 errhint("Rename the pg_catalog.lo_*_orig functions back by hand, or run lolor.disable() before the drop.")));
+		lolor_drop_not_replicated();
 		PG_RETURN_NULL();
 	}
 
@@ -611,6 +691,8 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 				"THEN lolor.disable() ELSE true END",
 				false, 0);
 	SPI_finish();
+
+	lolor_drop_not_replicated();
 
 	PG_RETURN_NULL();
 }
