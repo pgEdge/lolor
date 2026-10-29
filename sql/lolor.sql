@@ -717,6 +717,12 @@ DROP PUBLICATION lolor_test_pub;
 CREATE PUBLICATION lolor_test_pub FOR TABLES IN SCHEMA lolor;
 DROP SCHEMA lolor CASCADE;
 SELECT count(*) AS extension_still_installed FROM pg_extension WHERE extname = 'lolor';
+-- The event trigger gives the message early; the object access hook enforces
+-- it, so a disabled trigger changes nothing.
+ALTER EVENT TRIGGER lo_on_drop_extension DISABLE;
+DROP EXTENSION lolor;
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+SELECT count(*) AS extension_still_installed FROM pg_extension WHERE extname = 'lolor';
 DROP PUBLICATION lolor_test_pub;
 DROP EXTENSION lolor;
 

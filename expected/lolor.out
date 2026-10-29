@@ -1749,6 +1749,18 @@ SELECT count(*) AS extension_still_installed FROM pg_extension WHERE extname = '
                          1
 (1 row)
 
+-- The event trigger gives the message early; the object access hook enforces
+-- it, so a disabled trigger changes nothing.
+ALTER EVENT TRIGGER lo_on_drop_extension DISABLE;
+DROP EXTENSION lolor;
+ERROR:  cannot drop lolor while its tables are replicated
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+SELECT count(*) AS extension_still_installed FROM pg_extension WHERE extname = 'lolor';
+ extension_still_installed 
+---------------------------
+                         1
+(1 row)
+
 DROP PUBLICATION lolor_test_pub;
 DROP EXTENSION lolor;
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
