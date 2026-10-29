@@ -161,7 +161,7 @@ get_LOLOR_LargeObjectMetadataOidIndexId(void)
  * to hang off.  See lolor_migrate.c.
  */
 Oid
-get_LOLOR_LargeObjectDescriptionRelationId()
+get_LOLOR_LargeObjectDescriptionRelationId(void)
 {
 	if (!OidIsValid(LOLOR_LargeObjectDescriptionRelationId))
 		LOLOR_LargeObjectDescriptionRelationId =
@@ -171,7 +171,7 @@ get_LOLOR_LargeObjectDescriptionRelationId()
 }
 
 Oid
-get_LOLOR_LargeObjectDescriptionIndexId()
+get_LOLOR_LargeObjectDescriptionIndexId(void)
 {
 	if (!OidIsValid(LOLOR_LargeObjectDescriptionIndexId))
 		LOLOR_LargeObjectDescriptionIndexId =
@@ -697,6 +697,29 @@ lolor_extension_drop_check(Oid extoid)
 }
 
 /*
+ * lolor_own_table
+ *
+ *	Is relid one of the extension's two tables?  A same-named table in a
+ *	squatted schema is not.
+ */
+static bool
+lolor_own_table(Oid relid)
+{
+	Oid			nspoid;
+	Oid			extoid;
+
+	nspoid = get_namespace_oid(EXTENSION_NAME, true);
+	if (!OidIsValid(nspoid) ||
+		(get_relname_relid(LOLOR_LARGEOBJECT_METADATA, nspoid) != relid &&
+		 get_relname_relid(LOLOR_LARGEOBJECT_CATALOG, nspoid) != relid))
+		return false;
+
+	extoid = get_extension_oid(EXTENSION_NAME, true);
+	return OidIsValid(extoid) &&
+		getExtensionOfObject(RelationRelationId, relid) == extoid;
+}
+
+/*
  * lolor_replication_drop_check
  *
  *	Refuse to remove lolor while its tables are replicated.
@@ -707,6 +730,21 @@ lolor_extension_drop_check(Oid extoid)
  *	apply worker errors for good, or a subscription goes with DROP OWNED BY
  *	and leaves its slot behind holding WAL.  Name the memberships and let the
  *	operator take the tables out first.
+ *
+ *	With spock the memberships are kept on the provider, so on a subscriber
+ *	the tables show only in local_sync_status, as synchronized through a
+ *	subscription; a table added to a set after the initial sync has no row
+ *	there.
+ *
+ *	The event trigger calls this for its message, before anything is renamed;
+ *	the object access hook enforces it, since the trigger can be disabled or
+ *	skipped with event_triggers off.  The hook checks only tables that still
+ *	belong to the extension: one detached with ALTER EXTENSION DROP TABLE
+ *	drops unchecked, like the storage check.  On the hook path the cascade has
+ *	already deleted dependents such as the pg_publication_rel and
+ *	pg_publication_namespace rows when the table's own drop hook fires;
+ *	the read-only query below runs with the statement's snapshot, which
+ *	still sees rows deleted later in the same command, and finds them.
  */
 static void
 lolor_replication_drop_check(void)
@@ -730,6 +768,10 @@ lolor_replication_drop_check(void)
 					 "   JOIN pg_catalog.pg_publication p ON p.oid = pn.pnpubid"
 					 "  WHERE pn.pnnspid = %u"
 					 " UNION"
+					 " SELECT 'publication ' || pg_catalog.quote_ident(p.pubname)"
+					 "   FROM pg_catalog.pg_publication p"
+					 "  WHERE p.puballtables"
+					 " UNION"
 					 " SELECT 'subscription ' || pg_catalog.quote_ident(s.subname)"
 					 "   FROM pg_catalog.pg_subscription_rel sr"
 					 "   JOIN pg_catalog.pg_subscription s ON s.oid = sr.srsubid"
@@ -746,14 +788,24 @@ lolor_replication_drop_check(void)
 						 "   FROM spock.replication_set_table rst"
 						 "   JOIN spock.replication_set rs ON rs.set_id = rst.set_id"
 						 "   JOIN pg_catalog.pg_class c ON c.oid = rst.set_reloid"
-						 "  WHERE c.relnamespace = %u",
-						 lolor_namespace_oid());
+						 "  WHERE c.relnamespace = %u"
+						 " UNION"
+						 " SELECT 'subscription ' || pg_catalog.quote_ident(s.sub_name)"
+						 "   FROM spock.local_sync_status l"
+						 "   JOIN spock.subscription s ON s.sub_id = l.sync_subid"
+						 "  WHERE l.sync_nspname = %s",
+						 lolor_namespace_oid(),
+						 quote_literal_cstr(EXTENSION_NAME));
 
 	appendStringInfoString(&query, ") x");
 
 	if (SPI_connect() != SPI_OK_CONNECT)
 		elog(ERROR, "SPI_connect failed");
 
+	/*
+	 * Must stay read-only: that keeps the statement's snapshot, which still
+	 * sees membership rows the drop cascade deleted before the hook fired.
+	 */
 	ret = SPI_execute(query.data, true, 1);
 	if (ret != SPI_OK_SELECT || SPI_processed != 1)
 		elog(ERROR, "could not look up replication memberships: %s",
@@ -769,7 +821,7 @@ lolor_replication_drop_check(void)
 				(errcode(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST),
 				 errmsg("cannot drop lolor while its tables are replicated"),
 				 errdetail("The lolor tables are part of %s.", list),
-				 errhint("Remove them from the replication set, publication or subscription first.")));
+				 errhint("Remove them from the replication set, publication or subscription first; drop a FOR ALL TABLES publication.")));
 	}
 
 	SPI_finish();
@@ -797,7 +849,11 @@ lolor_object_access(ObjectAccessType access, Oid classId, Oid objectId,
 	{
 		/* subId != 0 is a column being dropped, not the table. */
 		if (classId == RelationRelationId && subId == 0)
+		{
+			if (lolor_own_table(objectId))
+				lolor_replication_drop_check();
 			lolor_storage_drop_check(objectId);
+		}
 		else if (classId == ExtensionRelationId)
 			lolor_extension_drop_check(objectId);
 	}
