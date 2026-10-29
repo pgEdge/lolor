@@ -11,6 +11,16 @@ PGFILEDESC = "lolor - drop in large objects replacement for logical replication"
 OBJS = src/lolor.o src/lolor_fsstubs.o src/lolor_inv_api.o src/lolor_largeobject.o \
        src/lolor_migrate.o
 
+# The library refuses critical operations when the installed extension is
+# another version, so it has to know its own.  Take it from lolor.control so
+# the two cannot drift.
+LOLOR_VERSION := $(shell sed -n "s/^default_version *= *'\(.*\)'/\1/p" \
+	$(dir $(lastword $(MAKEFILE_LIST)))lolor.control)
+ifeq ($(LOLOR_VERSION),)
+$(error could not read default_version from lolor.control)
+endif
+PG_CPPFLAGS += -DLOLOR_VERSION=\"$(LOLOR_VERSION)\"
+
 REGRESS = lolor
 # The drop guard is an object_access_hook, so lolor has to be preloaded and the
 # regression suite can only run against a server that preloads it.  Run it in a
