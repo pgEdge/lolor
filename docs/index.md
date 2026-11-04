@@ -64,7 +64,8 @@ while any object remains in lolor storage, on every path that reaches it
 (`DROP EXTENSION`, `DROP SCHEMA lolor CASCADE`, `DROP OWNED BY`). The drop
 itself only puts the native `pg_catalog.lo_*` names back. To discard whatever
 is in lolor storage instead, a superuser can set `lolor.allow_unsafe_drop = on`
-for the session that runs the drop. It skips every check, and the drop then
+for the session that runs the drop. It skips every check except the refusal, under spock's DDL
+replication, of a statement that could also drop other objects, and the drop then
 does not restore the native function names either, so run `lolor.disable()`
 first if lolor is enabled. While lolor is enabled, a normal drop renames the
 native functions back, so it has the same requirements as `lolor.disable()`:
@@ -103,12 +104,62 @@ doing anything (0 is reserved for "nothing to migrate"), while
 migrating; merely disabling a subscription is not sufficient, since its slot
 retains the changes and delivers them when replication resumes.
 
+### Dropping the extension
+
+`DROP EXTENSION lolor` is node-local, and in a Spock cluster every node both
+publishes and subscribes the lolor tables, so dropping the extension is a
+per-node procedure over a quiesced cluster. In this order:
+
+1. Stop creating and changing large objects on every node. The lolor tables
+   are about to be dropped, and a change still in flight when its target node
+   has dropped them fails there and stalls that subscription.
+
+2. Wait for replication to drain, then confirm the nodes agree:
+
+   ```sql
+   SELECT * FROM lolor.digest();   -- run on every node; the output must match
+   ```
+
+3. Take the lolor tables out of the replication sets on every node, the
+   reverse of the setup above:
+
+   ```sql
+   SELECT spock.repset_remove_table('default', 'lolor.pg_largeobject');
+   SELECT spock.repset_remove_table('default', 'lolor.pg_largeobject_metadata');
+   ```
+
+   From here no node publishes the tables and no subscription expects changes
+   for them, so the order of the per-node steps below does not matter.
+
+4. Migrate the data out on every node, connecting to each node directly; the
+   migration runs in repair mode and is not replicated:
+
+   ```sql
+   SELECT lolor.migrate_to_native();
+   ```
+
+5. Drop the extension on each node, connecting to each node directly, with no
+   other client session connected to the database:
+
+   ```sql
+   DROP EXTENSION lolor;
+   ```
+
+   With `spock.enable_ddl_replication` on, the drop keeps itself out of DDL
+   replication and a NOTICE says so; the other nodes keep their extension
+   until the same command runs there.
+
+Without Spock there is a single node: stop large object use, run
+`lolor.migrate_to_native()`, and drop the extension, with the same
+single-session requirement.
+
 ## Limitations
 
 - Native Postgres large object functionality cannot be used while you are using the lolor extension.
 - lolor does not support the following statements against objects held in lolor storage: `ALTER LARGE OBJECT`, `GRANT ON LARGE OBJECT`, `COMMENT ON LARGE OBJECT`, and `REVOKE ON LARGE OBJECT`. Owners, ACLs and comments set while an object was in native storage are preserved across migration in both directions.
 - `lolor.enable()`, `lolor.disable()`, the migration functions, `CREATE EXTENSION lolor`, and dropping the extension while lolor is enabled, refuse while any other session is connected to the database, the same rule as `ALTER DATABASE ... RENAME`: a renamed function keeps its OID, so a session that already resolved the `lo_*` functions keeps calling the previous implementation, and the row movement cannot be made atomic for other backends either. The calling session must reconnect after `enable()` or `disable()`. They also refuse to run from anything but a client session, so replicated DDL cannot drive them from an apply worker. Only client sessions count: background workers such as replication apply workers do not call the `lo_*` functions by name. To count reliably, each of these operations takes an exclusive lock on the database first, so a new connection to it waits until the operation's transaction ends. In single-user mode they run without the session check.
 - The loaded library and the installed extension must be the same version for `lolor.enable()`, `lolor.disable()`, the migration functions, `lolor.check_orphans()`, `lolor.fix_orphans()` and dropping the extension. After installing new library files, run `ALTER EXTENSION lolor UPDATE` in each database before using them; until then they refuse and name both versions.
+- `DROP EXTENSION lolor` is not replicated: with spock's `spock.enable_ddl_replication` on, the drop turns it off for the rest of its transaction and says so in a NOTICE. Any other statement that drops lolor and could also remove other objects, such as `DROP EXTENSION lolor, hstore`, `DROP EXTENSION lolor CASCADE`, `DROP SCHEMA lolor CASCADE` or `DROP OWNED BY` the extension owner, is refused so that those drops are not left unreplicated, even with `lolor.allow_unsafe_drop` on. Drop the other objects first, then run a plain `DROP EXTENSION lolor` on each node, connecting to each node directly; see [Dropping the extension](#dropping-the-extension).
 - Objects in lolor storage are rows in ordinary tables and so cannot participate in `pg_shdepend`. `DROP ROLE`, `DROP OWNED BY` and `REASSIGN OWNED BY` do not see them: a role that owns them or appears in their ACL can be dropped without a warning, and `REASSIGN OWNED` / `DROP OWNED` leave them untouched. Before dropping a role, run `REASSIGN OWNED BY` or `DROP OWNED BY` in each database that has lolor, then `DROP ROLE`. For the role that owns the extension use `REASSIGN OWNED BY`: `DROP OWNED BY` would remove the extension too, and is refused while any object remains in lolor storage. Afterwards run `lolor.check_orphans()` in each such database and repair anything it reports with `lolor.fix_orphans(new_owner)`; `lolor.migrate_to_native()` refuses while orphans exist.
 - Role OIDs come from a cluster-wide counter that wraps around, so a new role can receive a dropped role's OID and silently become the owner or grantee of that role's orphaned objects. This cannot be detected after the fact, which is another reason to run `lolor.check_orphans()` promptly after dropping roles.
 - Large object migration is node-local. Native large objects live in `pg_catalog.pg_largeobject`, which is never replicated, so each node holds an independent set and `migrate_from_native()` migrates only the local node's objects; with spock installed, the migration DML runs in repair mode and is not replicated. Run the migration on every node that holds native large objects, connecting to each node directly. It refuses to run inside an apply worker, so sending it through DDL replication fails on every subscriber. Migrated objects keep their original native OIDs, which are not node-encoded: if different nodes hold different objects under the same OID, the nodes' lolor contents will diverge and later replicated changes to those objects can conflict. Newly created large objects are collision-free, since new OIDs are node-encoded via `lolor.node` and checked against existing rows. To make that hazard an error rather than silent divergence, collect the other nodes' OIDs with `lolor.native_lo_oids()` and pass them in: `SELECT lolor.migrate_from_native(peer_oids => ARRAY[...])` refuses when any of them collide. After migrating every node, compare `lolor.digest()` across nodes to confirm they converged.
