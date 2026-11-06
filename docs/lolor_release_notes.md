@@ -1,5 +1,10 @@
 # lolor Release Notes
 
+## lolor 1.2.4
+
+* Harden the release workflow: pin the builder action by commit SHA
+* Install and validate the repo client certificate (key match, issuer, validity period) before configuring the pgEdge repos in package builds
+
 ## lolor 1.2.3
 
 * Add support for PostgreSQL 19
