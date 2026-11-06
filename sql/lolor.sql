@@ -163,6 +163,45 @@ SELECT extname FROM pg_extension; -- check lolor removal
 SELECT convert_from(lo_get(:disabled_drop_oid), 'UTF8') AS survived_disabled_drop;
 SELECT lo_unlink(:disabled_drop_oid);
 
+-- DROP EXTENSION lolor is node-local, so with spock's DDL replication on it
+-- keeps itself out of replication by turning the setting off for the rest of
+-- its transaction instead of letting the drop be queued.  spock is not loaded
+-- here, so the setting is a placeholder; lolor only reads and sets it.  With
+-- the setting unset or off, as in every drop above, lolor leaves it alone and
+-- says nothing.
+CREATE EXTENSION lolor;
+SET spock.enable_ddl_replication = on;
+-- Inside a transaction block the off would reach any later statement, so the
+-- drop is refused there rather than silently keeping that statement out of
+-- replication.  The refusal comes before anything is dropped.
+BEGIN;
+DROP EXTENSION lolor;
+ROLLBACK;
+-- Run on its own the drop is a single-statement transaction, so the off
+-- reverts right after it; SHOW still reports on.
+DROP EXTENSION lolor;
+SHOW spock.enable_ddl_replication;
+-- A statement that drops lolor together with other objects is refused while
+-- the setting is on, since turning it off would also keep the other drops
+-- from being replicated.  The refusal comes before anything is dropped.
+CREATE EXTENSION lolor;
+DROP EXTENSION lolor, plpgsql;
+DROP OWNED BY CURRENT_USER;
+-- CASCADE would also take a user's view that calls lolor's functions.
+CREATE VIEW lolor_dependent AS SELECT lo_get(0::oid) AS data;
+DROP EXTENSION lolor CASCADE;
+DROP SCHEMA lolor CASCADE;
+SELECT extname FROM pg_extension WHERE extname IN ('lolor', 'plpgsql') ORDER BY 1;
+SELECT count(*) AS view_kept FROM pg_class WHERE relname = 'lolor_dependent';
+SELECT lolor.is_enabled();
+DROP VIEW lolor_dependent;
+DROP EXTENSION lolor;
+SET spock.enable_ddl_replication = off;
+CREATE EXTENSION lolor;
+DROP EXTENSION lolor;
+SHOW spock.enable_ddl_replication;
+RESET spock.enable_ddl_replication;
+
 --
 -- Migration tests: migrate_from_native / migrate_to_native / DROP EXTENSION
 --
