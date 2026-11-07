@@ -1,0 +1,2257 @@
+{
+ "_note": "Validation fixture (existing-package validation, not a release build): the already-published lolor 1.2.3-1 RELEASE-channel files a real build cell uploads, per detector cell, with URL, sha256 and size from repository metadata (repomd.xml -> primary, InRelease -> Packages.gz, each chain checked), every URL headers-only probed (HTTP 200, Content-Length = size). PG19 packages of this version exist for all 14 PG19 cells, so all 56 cells are staged; PEP reports the PG19 cells as pg_not_supported gaps. Nothing is built or published from it; the receipts bind these files to this run's cells only.",
+ "cells": {
+  "pepcell.v1.deb.bookworm.amd64.pkg.pg16": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.bookworm_amd64.deb",
+    "name": "pgedge-postgresql-16-lolor-dbgsym",
+    "sha256": "db63f43e12f4fe3bc91ab754d19882b620caa358748a318803912ce9d883a701",
+    "size": 79214,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.bookworm_amd64.deb",
+    "version": "1.2.3-1.bookworm"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-16-lolor_1.2.3-1.bookworm_amd64.deb",
+    "name": "pgedge-postgresql-16-lolor",
+    "sha256": "aa6628154d3ed12f65440a8b21d876a312a7dbd347799dee75aba3a951fc6ae0",
+    "size": 74156,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor_1.2.3-1.bookworm_amd64.deb",
+    "version": "1.2.3-1.bookworm"
+   }
+  ],
+  "pepcell.v1.deb.bookworm.amd64.pkg.pg17": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.bookworm_amd64.deb",
+    "name": "pgedge-postgresql-17-lolor-dbgsym",
+    "sha256": "eab2697f6a04e3fbc8f60b6f8051fb7ed95b15e3548e4fd2bf1d0adedca2227f",
+    "size": 80994,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.bookworm_amd64.deb",
+    "version": "1.2.3-1.bookworm"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-17-lolor_1.2.3-1.bookworm_amd64.deb",
+    "name": "pgedge-postgresql-17-lolor",
+    "sha256": "8b88495a570ba9091ff59fad0a324b5e819ac0d51af3c95794433b5de34f9b09",
+    "size": 76846,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor_1.2.3-1.bookworm_amd64.deb",
+    "version": "1.2.3-1.bookworm"
+   }
+  ],
+  "pepcell.v1.deb.bookworm.amd64.pkg.pg18": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.bookworm_amd64.deb",
+    "name": "pgedge-postgresql-18-lolor-dbgsym",
+    "sha256": "430bcbad463bd725bdd3eaae915a43a13300fee7ef7758680f8f004885d5741f",
+    "size": 83246,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.bookworm_amd64.deb",
+    "version": "1.2.3-1.bookworm"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-18-lolor_1.2.3-1.bookworm_amd64.deb",
+    "name": "pgedge-postgresql-18-lolor",
+    "sha256": "b5d599aa1302e651f54a53e02bbb27a532d7a89215b98f434633ff09a3876e17",
+    "size": 76974,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor_1.2.3-1.bookworm_amd64.deb",
+    "version": "1.2.3-1.bookworm"
+   }
+  ],
+  "pepcell.v1.deb.bookworm.amd64.pkg.pg19": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.bookworm_amd64.deb",
+    "name": "pgedge-postgresql-19-lolor-dbgsym",
+    "sha256": "6307aa7e6abe0093e3b2707e3e09fb8f467707ec3439ca2c400c210612f31443",
+    "size": 71678,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.bookworm_amd64.deb",
+    "version": "1.2.3-1.bookworm"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-19-lolor_1.2.3-1.bookworm_amd64.deb",
+    "name": "pgedge-postgresql-19-lolor",
+    "sha256": "20e8efa0b4cf616e062deba4e5a496fda195a30924eccba3072e651c6f05a7f7",
+    "size": 72680,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor_1.2.3-1.bookworm_amd64.deb",
+    "version": "1.2.3-1.bookworm"
+   }
+  ],
+  "pepcell.v1.deb.bookworm.arm64.pkg.pg16": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.bookworm_arm64.deb",
+    "name": "pgedge-postgresql-16-lolor-dbgsym",
+    "sha256": "93a13d35b2a1a80a934faaab932ad648f0a33bf3be1ca41b34857351a3a6f29b",
+    "size": 76494,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.bookworm_arm64.deb",
+    "version": "1.2.3-1.bookworm"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-16-lolor_1.2.3-1.bookworm_arm64.deb",
+    "name": "pgedge-postgresql-16-lolor",
+    "sha256": "9c954f27f4324ee23221fe7549aa119eebc4604541481cd76f4d353b391afd5b",
+    "size": 73162,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor_1.2.3-1.bookworm_arm64.deb",
+    "version": "1.2.3-1.bookworm"
+   }
+  ],
+  "pepcell.v1.deb.bookworm.arm64.pkg.pg17": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.bookworm_arm64.deb",
+    "name": "pgedge-postgresql-17-lolor-dbgsym",
+    "sha256": "c9f4d971d3541a874898d2dbfdd4835877a7e737033d6e7bf9ad649175ec1e45",
+    "size": 78640,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.bookworm_arm64.deb",
+    "version": "1.2.3-1.bookworm"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-17-lolor_1.2.3-1.bookworm_arm64.deb",
+    "name": "pgedge-postgresql-17-lolor",
+    "sha256": "8fc50d9e30f7e19ff6a591b0651f975515e5f213cc0291dfebfbde8dcad309f4",
+    "size": 75836,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor_1.2.3-1.bookworm_arm64.deb",
+    "version": "1.2.3-1.bookworm"
+   }
+  ],
+  "pepcell.v1.deb.bookworm.arm64.pkg.pg18": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.bookworm_arm64.deb",
+    "name": "pgedge-postgresql-18-lolor-dbgsym",
+    "sha256": "9d637c4191584dadbed46c5a61edcf11371b129e150adb8d6d679aa2177e6570",
+    "size": 80488,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.bookworm_arm64.deb",
+    "version": "1.2.3-1.bookworm"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-18-lolor_1.2.3-1.bookworm_arm64.deb",
+    "name": "pgedge-postgresql-18-lolor",
+    "sha256": "e464275d249f633d6171e34ca684522828e5b4e4f0d7123432ec3ab9196017cc",
+    "size": 76002,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor_1.2.3-1.bookworm_arm64.deb",
+    "version": "1.2.3-1.bookworm"
+   }
+  ],
+  "pepcell.v1.deb.bookworm.arm64.pkg.pg19": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.bookworm_arm64.deb",
+    "name": "pgedge-postgresql-19-lolor-dbgsym",
+    "sha256": "647e20344e4dec63b409d619d8f3ea729a25f602ef938912aa05d7a29384ff0d",
+    "size": 69414,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.bookworm_arm64.deb",
+    "version": "1.2.3-1.bookworm"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-19-lolor_1.2.3-1.bookworm_arm64.deb",
+    "name": "pgedge-postgresql-19-lolor",
+    "sha256": "c667f2a0458f7f0ece751878605a8a23ea4d407812785041739eb337250044b0",
+    "size": 71506,
+    "url": "https://apt.pgedge.com/release/bookworm/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor_1.2.3-1.bookworm_arm64.deb",
+    "version": "1.2.3-1.bookworm"
+   }
+  ],
+  "pepcell.v1.deb.jammy.amd64.pkg.pg16": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.jammy_amd64.deb",
+    "name": "pgedge-postgresql-16-lolor-dbgsym",
+    "sha256": "d22b98882e76f49415e9cfee324986ac5df8928e94c1fbcbac0c2bd47eb28479",
+    "size": 79906,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.jammy_amd64.deb",
+    "version": "1.2.3-1.jammy"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-16-lolor_1.2.3-1.jammy_amd64.deb",
+    "name": "pgedge-postgresql-16-lolor",
+    "sha256": "6669c3cf31fb9e0abfce468ae83796dd2cf8d4a2ed9c8e18a4e884a63190fd70",
+    "size": 74086,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor_1.2.3-1.jammy_amd64.deb",
+    "version": "1.2.3-1.jammy"
+   }
+  ],
+  "pepcell.v1.deb.jammy.amd64.pkg.pg17": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.jammy_amd64.deb",
+    "name": "pgedge-postgresql-17-lolor-dbgsym",
+    "sha256": "9c00f73788d59f0752949073236ff1f0189c6a44d239056cbe1a95920fb7c45b",
+    "size": 81560,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.jammy_amd64.deb",
+    "version": "1.2.3-1.jammy"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-17-lolor_1.2.3-1.jammy_amd64.deb",
+    "name": "pgedge-postgresql-17-lolor",
+    "sha256": "32a8754a65d4f08a1733bf1ff2745c214a636cd3067405870818c6624508135b",
+    "size": 76792,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor_1.2.3-1.jammy_amd64.deb",
+    "version": "1.2.3-1.jammy"
+   }
+  ],
+  "pepcell.v1.deb.jammy.amd64.pkg.pg18": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.jammy_amd64.deb",
+    "name": "pgedge-postgresql-18-lolor-dbgsym",
+    "sha256": "db839ce81b4b2a8a5750497435ddb96be8522884833e27a1cdce47d6818afdf7",
+    "size": 83918,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.jammy_amd64.deb",
+    "version": "1.2.3-1.jammy"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-18-lolor_1.2.3-1.jammy_amd64.deb",
+    "name": "pgedge-postgresql-18-lolor",
+    "sha256": "f2c4141ac866cf75d05df54eddca40510637a56c6190c9541f41dfc3065f7431",
+    "size": 76928,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor_1.2.3-1.jammy_amd64.deb",
+    "version": "1.2.3-1.jammy"
+   }
+  ],
+  "pepcell.v1.deb.jammy.amd64.pkg.pg19": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.jammy_amd64.deb",
+    "name": "pgedge-postgresql-19-lolor-dbgsym",
+    "sha256": "445dc1330570ce601a003ea4e8fd3b34b206088ddfdfc6300934c3cc6660c5f1",
+    "size": 72512,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.jammy_amd64.deb",
+    "version": "1.2.3-1.jammy"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-19-lolor_1.2.3-1.jammy_amd64.deb",
+    "name": "pgedge-postgresql-19-lolor",
+    "sha256": "9dd54649126b264f8e49095f97611f3571a49fa58bd12bf2ea59a9c598563fd7",
+    "size": 72636,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor_1.2.3-1.jammy_amd64.deb",
+    "version": "1.2.3-1.jammy"
+   }
+  ],
+  "pepcell.v1.deb.jammy.arm64.pkg.pg16": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.jammy_arm64.deb",
+    "name": "pgedge-postgresql-16-lolor-dbgsym",
+    "sha256": "e8d77a734d0a7e11a95291a340344e83d13243f98eb2724b5e405afd32a49c49",
+    "size": 77890,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.jammy_arm64.deb",
+    "version": "1.2.3-1.jammy"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-16-lolor_1.2.3-1.jammy_arm64.deb",
+    "name": "pgedge-postgresql-16-lolor",
+    "sha256": "d3670f5a66fce7f77be63385d8969c7e8dbae355ffcd7a90d1870d0ae437b158",
+    "size": 72652,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor_1.2.3-1.jammy_arm64.deb",
+    "version": "1.2.3-1.jammy"
+   }
+  ],
+  "pepcell.v1.deb.jammy.arm64.pkg.pg17": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.jammy_arm64.deb",
+    "name": "pgedge-postgresql-17-lolor-dbgsym",
+    "sha256": "776596d7fc0dc6bf3dbd2ee26d1b9cb3d7a097bf181934e4a25f7f827831ac5e",
+    "size": 79634,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.jammy_arm64.deb",
+    "version": "1.2.3-1.jammy"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-17-lolor_1.2.3-1.jammy_arm64.deb",
+    "name": "pgedge-postgresql-17-lolor",
+    "sha256": "b2bfaa0dc375443c32d5df1ed8925281fd420c2545d47e1969b927c6bdea06f7",
+    "size": 75252,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor_1.2.3-1.jammy_arm64.deb",
+    "version": "1.2.3-1.jammy"
+   }
+  ],
+  "pepcell.v1.deb.jammy.arm64.pkg.pg18": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.jammy_arm64.deb",
+    "name": "pgedge-postgresql-18-lolor-dbgsym",
+    "sha256": "532edab35f03b56939fdf865188e0c8e5f481fae9b653bcc74b9e9f51a92ed6f",
+    "size": 81926,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.jammy_arm64.deb",
+    "version": "1.2.3-1.jammy"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-18-lolor_1.2.3-1.jammy_arm64.deb",
+    "name": "pgedge-postgresql-18-lolor",
+    "sha256": "d32efef238d0d5cfe107752060c90a61066844c45dc82bd910d605f8c300d28d",
+    "size": 75410,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor_1.2.3-1.jammy_arm64.deb",
+    "version": "1.2.3-1.jammy"
+   }
+  ],
+  "pepcell.v1.deb.jammy.arm64.pkg.pg19": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.jammy_arm64.deb",
+    "name": "pgedge-postgresql-19-lolor-dbgsym",
+    "sha256": "7c3d0f1483bac726ebecbb485ac1bb4814f10a9452bc29e730a3733c22a18f8a",
+    "size": 70586,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.jammy_arm64.deb",
+    "version": "1.2.3-1.jammy"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-19-lolor_1.2.3-1.jammy_arm64.deb",
+    "name": "pgedge-postgresql-19-lolor",
+    "sha256": "f6b6fa7ea4b21dc6bd05a9d9fc2e8ab7e3516d53addf8d9473149ae4a4e494cb",
+    "size": 71016,
+    "url": "https://apt.pgedge.com/release/jammy/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor_1.2.3-1.jammy_arm64.deb",
+    "version": "1.2.3-1.jammy"
+   }
+  ],
+  "pepcell.v1.deb.noble.amd64.pkg.pg16": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.noble_amd64.deb",
+    "name": "pgedge-postgresql-16-lolor-dbgsym",
+    "sha256": "ae0367aea7266ea7a93ac1ba2e63e9880949b965a612d036a5c748f38110532f",
+    "size": 80400,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.noble_amd64.deb",
+    "version": "1.2.3-1.noble"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-16-lolor_1.2.3-1.noble_amd64.deb",
+    "name": "pgedge-postgresql-16-lolor",
+    "sha256": "2351d81a0f1355f6e96fed965dea50fecd6aba467364f6efc6d261760edb6cf0",
+    "size": 67016,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor_1.2.3-1.noble_amd64.deb",
+    "version": "1.2.3-1.noble"
+   }
+  ],
+  "pepcell.v1.deb.noble.amd64.pkg.pg17": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.noble_amd64.deb",
+    "name": "pgedge-postgresql-17-lolor-dbgsym",
+    "sha256": "0f20a09cf86813918f314944dd54c408e90f8705160cef7249ca4fda44fbf60a",
+    "size": 82026,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.noble_amd64.deb",
+    "version": "1.2.3-1.noble"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-17-lolor_1.2.3-1.noble_amd64.deb",
+    "name": "pgedge-postgresql-17-lolor",
+    "sha256": "71b233f496962745a4c56c0f89bb84f2e7ded9c41004b34e03b0d6619fc291e6",
+    "size": 66948,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor_1.2.3-1.noble_amd64.deb",
+    "version": "1.2.3-1.noble"
+   }
+  ],
+  "pepcell.v1.deb.noble.amd64.pkg.pg18": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.noble_amd64.deb",
+    "name": "pgedge-postgresql-18-lolor-dbgsym",
+    "sha256": "381249a110750086011a0c128e5a385ec17ec874895551d31c73f9fefed42e43",
+    "size": 84494,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.noble_amd64.deb",
+    "version": "1.2.3-1.noble"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-18-lolor_1.2.3-1.noble_amd64.deb",
+    "name": "pgedge-postgresql-18-lolor",
+    "sha256": "affcc7cf2fed77da1b70bc636c2d712d5b7079ec3f466eabbd41ba66a813f5d4",
+    "size": 66930,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor_1.2.3-1.noble_amd64.deb",
+    "version": "1.2.3-1.noble"
+   }
+  ],
+  "pepcell.v1.deb.noble.amd64.pkg.pg19": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.noble_amd64.deb",
+    "name": "pgedge-postgresql-19-lolor-dbgsym",
+    "sha256": "498c32d070e4b391c0d767744a584fba1593010303c1384c7332fbb5b0e5ed31",
+    "size": 73142,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.noble_amd64.deb",
+    "version": "1.2.3-1.noble"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-19-lolor_1.2.3-1.noble_amd64.deb",
+    "name": "pgedge-postgresql-19-lolor",
+    "sha256": "ef26960c6986733c68b1a3171d78d255eefa9ca8aeb2463fd7eba4134011c2a5",
+    "size": 66884,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor_1.2.3-1.noble_amd64.deb",
+    "version": "1.2.3-1.noble"
+   }
+  ],
+  "pepcell.v1.deb.noble.arm64.pkg.pg16": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.noble_arm64.deb",
+    "name": "pgedge-postgresql-16-lolor-dbgsym",
+    "sha256": "aa78a6ddee9bd0ac6465acbb5b3db808078d3c5ebae5384a2847da795e5c3c5b",
+    "size": 77562,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.noble_arm64.deb",
+    "version": "1.2.3-1.noble"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-16-lolor_1.2.3-1.noble_arm64.deb",
+    "name": "pgedge-postgresql-16-lolor",
+    "sha256": "5a7b3e991327476f6c34741e05c81c3d1bc817155a3fcd804293c79f02a3cf04",
+    "size": 66136,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor_1.2.3-1.noble_arm64.deb",
+    "version": "1.2.3-1.noble"
+   }
+  ],
+  "pepcell.v1.deb.noble.arm64.pkg.pg17": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.noble_arm64.deb",
+    "name": "pgedge-postgresql-17-lolor-dbgsym",
+    "sha256": "970c93013b6b51bd014d5d85aff305d5a7d4c23ed0a3d0c8eaacc087ae487354",
+    "size": 79336,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.noble_arm64.deb",
+    "version": "1.2.3-1.noble"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-17-lolor_1.2.3-1.noble_arm64.deb",
+    "name": "pgedge-postgresql-17-lolor",
+    "sha256": "dd58cd28f06fcee2ffac09bee8e8ebbf11a9fe89f30aec457b1255289acc9955",
+    "size": 66072,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor_1.2.3-1.noble_arm64.deb",
+    "version": "1.2.3-1.noble"
+   }
+  ],
+  "pepcell.v1.deb.noble.arm64.pkg.pg18": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.noble_arm64.deb",
+    "name": "pgedge-postgresql-18-lolor-dbgsym",
+    "sha256": "abb7f5cde081d17361792d5694df0801a8b4aec30fc11b82030e5c146f4b1846",
+    "size": 81768,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.noble_arm64.deb",
+    "version": "1.2.3-1.noble"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-18-lolor_1.2.3-1.noble_arm64.deb",
+    "name": "pgedge-postgresql-18-lolor",
+    "sha256": "4303bb3f9c3cc3874c8d56b44d61fa0904f6f988027d14bfda2aea763bca52ea",
+    "size": 66064,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor_1.2.3-1.noble_arm64.deb",
+    "version": "1.2.3-1.noble"
+   }
+  ],
+  "pepcell.v1.deb.noble.arm64.pkg.pg19": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.noble_arm64.deb",
+    "name": "pgedge-postgresql-19-lolor-dbgsym",
+    "sha256": "71317531d51c81a9a3b2c8d5e7099975bbbc7a3d729b65b149611a8c2e8885c7",
+    "size": 70522,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.noble_arm64.deb",
+    "version": "1.2.3-1.noble"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-19-lolor_1.2.3-1.noble_arm64.deb",
+    "name": "pgedge-postgresql-19-lolor",
+    "sha256": "b7151cac3d9b861adfd30148323c483843bdaf83057de6e8bcd4bf461e588833",
+    "size": 66068,
+    "url": "https://apt.pgedge.com/release/noble/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor_1.2.3-1.noble_arm64.deb",
+    "version": "1.2.3-1.noble"
+   }
+  ],
+  "pepcell.v1.deb.resolute.amd64.pkg.pg16": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.resolute_amd64.deb",
+    "name": "pgedge-postgresql-16-lolor-dbgsym",
+    "sha256": "0c5a00113c09b09e112121eee001c7b46b5edbbe6945d5529e3ba5f482e75260",
+    "size": 81272,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.resolute_amd64.deb",
+    "version": "1.2.3-1.resolute"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-16-lolor_1.2.3-1.resolute_amd64.deb",
+    "name": "pgedge-postgresql-16-lolor",
+    "sha256": "85c5ac36ee72761f706bbaf16e99c906c80b94e63660a63b678110c09866ad13",
+    "size": 65850,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor_1.2.3-1.resolute_amd64.deb",
+    "version": "1.2.3-1.resolute"
+   }
+  ],
+  "pepcell.v1.deb.resolute.amd64.pkg.pg17": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.resolute_amd64.deb",
+    "name": "pgedge-postgresql-17-lolor-dbgsym",
+    "sha256": "4c6eefafe3f5122fe8c1747b22e68c8bb375526c8f23a33bf3092ffdf8680f5d",
+    "size": 82818,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.resolute_amd64.deb",
+    "version": "1.2.3-1.resolute"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-17-lolor_1.2.3-1.resolute_amd64.deb",
+    "name": "pgedge-postgresql-17-lolor",
+    "sha256": "4b9a313798ed38407a47ee0101e90dc22f325f2635bab045c45a9c5784c6e0cd",
+    "size": 65832,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor_1.2.3-1.resolute_amd64.deb",
+    "version": "1.2.3-1.resolute"
+   }
+  ],
+  "pepcell.v1.deb.resolute.amd64.pkg.pg18": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.resolute_amd64.deb",
+    "name": "pgedge-postgresql-18-lolor-dbgsym",
+    "sha256": "a6f759874b08ae11ccff66d4ec3b50d88f52c9394ff492366a435c1521e97a8e",
+    "size": 85160,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.resolute_amd64.deb",
+    "version": "1.2.3-1.resolute"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-18-lolor_1.2.3-1.resolute_amd64.deb",
+    "name": "pgedge-postgresql-18-lolor",
+    "sha256": "39d29a249e98690c8b737c8c39f795085d444fa9fa9a1e5c8c5dd7d71191658e",
+    "size": 65732,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor_1.2.3-1.resolute_amd64.deb",
+    "version": "1.2.3-1.resolute"
+   }
+  ],
+  "pepcell.v1.deb.resolute.amd64.pkg.pg19": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.resolute_amd64.deb",
+    "name": "pgedge-postgresql-19-lolor-dbgsym",
+    "sha256": "fda2db45221fd0028e88326afae3da31e561fd19c6e9054f9bed297ff5dd98c3",
+    "size": 74012,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.resolute_amd64.deb",
+    "version": "1.2.3-1.resolute"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-19-lolor_1.2.3-1.resolute_amd64.deb",
+    "name": "pgedge-postgresql-19-lolor",
+    "sha256": "f466b796402ead60d55bae7b6d158bc911b1416100a05bc99c93ae779eef1cfb",
+    "size": 65776,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor_1.2.3-1.resolute_amd64.deb",
+    "version": "1.2.3-1.resolute"
+   }
+  ],
+  "pepcell.v1.deb.resolute.arm64.pkg.pg16": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.resolute_arm64.deb",
+    "name": "pgedge-postgresql-16-lolor-dbgsym",
+    "sha256": "43aac4b6a527e3ab27be889e0042e5a01c82fe180055a366ef10f57093b98cb8",
+    "size": 78942,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.resolute_arm64.deb",
+    "version": "1.2.3-1.resolute"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-16-lolor_1.2.3-1.resolute_arm64.deb",
+    "name": "pgedge-postgresql-16-lolor",
+    "sha256": "1ccd81807cff39f50007fcecc8c375abb31bc16c151addc2cafa0d9b79cfbcb8",
+    "size": 65302,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor_1.2.3-1.resolute_arm64.deb",
+    "version": "1.2.3-1.resolute"
+   }
+  ],
+  "pepcell.v1.deb.resolute.arm64.pkg.pg17": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.resolute_arm64.deb",
+    "name": "pgedge-postgresql-17-lolor-dbgsym",
+    "sha256": "aa841819118b09e9bd91f38d44cceae1726b1435bd2b5d3e1d1b44bd70cde660",
+    "size": 80532,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.resolute_arm64.deb",
+    "version": "1.2.3-1.resolute"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-17-lolor_1.2.3-1.resolute_arm64.deb",
+    "name": "pgedge-postgresql-17-lolor",
+    "sha256": "dd0eb6a62ba44aa53ff69aa2e25116e7ba844ff899d005ecaeb06cadf94dc144",
+    "size": 65304,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor_1.2.3-1.resolute_arm64.deb",
+    "version": "1.2.3-1.resolute"
+   }
+  ],
+  "pepcell.v1.deb.resolute.arm64.pkg.pg18": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.resolute_arm64.deb",
+    "name": "pgedge-postgresql-18-lolor-dbgsym",
+    "sha256": "b9e3e16913cd2fe74104935be804d66abb5c4fdc07f77ee87fd8f0434be7d8d5",
+    "size": 82946,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.resolute_arm64.deb",
+    "version": "1.2.3-1.resolute"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-18-lolor_1.2.3-1.resolute_arm64.deb",
+    "name": "pgedge-postgresql-18-lolor",
+    "sha256": "ca61b232089330d5aa3dbf741afdad9e700818cfde1f87a1c992f7707a43824d",
+    "size": 65280,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor_1.2.3-1.resolute_arm64.deb",
+    "version": "1.2.3-1.resolute"
+   }
+  ],
+  "pepcell.v1.deb.resolute.arm64.pkg.pg19": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.resolute_arm64.deb",
+    "name": "pgedge-postgresql-19-lolor-dbgsym",
+    "sha256": "eb0e93bc2d211b2038caefed594b589153bf85f1467df3ab50582a5001a07f74",
+    "size": 71696,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.resolute_arm64.deb",
+    "version": "1.2.3-1.resolute"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-19-lolor_1.2.3-1.resolute_arm64.deb",
+    "name": "pgedge-postgresql-19-lolor",
+    "sha256": "b7a51d8f1443e23230f2d6963d3be58d6666129ed3edb3601d3deef9833491af",
+    "size": 65290,
+    "url": "https://apt.pgedge.com/release/resolute/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor_1.2.3-1.resolute_arm64.deb",
+    "version": "1.2.3-1.resolute"
+   }
+  ],
+  "pepcell.v1.deb.trixie.amd64.pkg.pg16": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.trixie_amd64.deb",
+    "name": "pgedge-postgresql-16-lolor-dbgsym",
+    "sha256": "159d3dc628b51a7375ae9b2ab9c808f58808542ade27b77a7ed9084d3662af47",
+    "size": 79076,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.trixie_amd64.deb",
+    "version": "1.2.3-1.trixie"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-16-lolor_1.2.3-1.trixie_amd64.deb",
+    "name": "pgedge-postgresql-16-lolor",
+    "sha256": "8f0dd9a2b1db16c38d3af7bc28f4f94d07b6ff4e500202fa300fa293d24a9276",
+    "size": 66008,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor_1.2.3-1.trixie_amd64.deb",
+    "version": "1.2.3-1.trixie"
+   }
+  ],
+  "pepcell.v1.deb.trixie.amd64.pkg.pg17": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.trixie_amd64.deb",
+    "name": "pgedge-postgresql-17-lolor-dbgsym",
+    "sha256": "fc9b74a50c4fbbcaf35791f7f21ea707bfb4440af045def559a7e73077d84d98",
+    "size": 81036,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.trixie_amd64.deb",
+    "version": "1.2.3-1.trixie"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-17-lolor_1.2.3-1.trixie_amd64.deb",
+    "name": "pgedge-postgresql-17-lolor",
+    "sha256": "59c8d68e2a4b7f4ac287a04a966db03b6784377f21265810d4b6276ae1cecfd2",
+    "size": 66012,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor_1.2.3-1.trixie_amd64.deb",
+    "version": "1.2.3-1.trixie"
+   }
+  ],
+  "pepcell.v1.deb.trixie.amd64.pkg.pg18": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.trixie_amd64.deb",
+    "name": "pgedge-postgresql-18-lolor-dbgsym",
+    "sha256": "1e2314367690c9cb126baf6792a908f1ab63be885ba87571a7618d1e817f347b",
+    "size": 83110,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.trixie_amd64.deb",
+    "version": "1.2.3-1.trixie"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-18-lolor_1.2.3-1.trixie_amd64.deb",
+    "name": "pgedge-postgresql-18-lolor",
+    "sha256": "5c6ca14e546de1fb684771bec71c8b797f734b8b43a23b31c8c87869ab3e4711",
+    "size": 65968,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor_1.2.3-1.trixie_amd64.deb",
+    "version": "1.2.3-1.trixie"
+   }
+  ],
+  "pepcell.v1.deb.trixie.amd64.pkg.pg19": [
+   {
+    "arch": "amd64",
+    "class": "debug",
+    "file": "pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.trixie_amd64.deb",
+    "name": "pgedge-postgresql-19-lolor-dbgsym",
+    "sha256": "e31e78823043363a7e906ec28a4ac816ec545b0f2015d7ac2d1f094f18385e11",
+    "size": 71540,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.trixie_amd64.deb",
+    "version": "1.2.3-1.trixie"
+   },
+   {
+    "arch": "amd64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-19-lolor_1.2.3-1.trixie_amd64.deb",
+    "name": "pgedge-postgresql-19-lolor",
+    "sha256": "457cff49ad61b4ea080449cd422bb502294a88e22b593b065c9eccac4425f0bd",
+    "size": 65930,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor_1.2.3-1.trixie_amd64.deb",
+    "version": "1.2.3-1.trixie"
+   }
+  ],
+  "pepcell.v1.deb.trixie.arm64.pkg.pg16": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.trixie_arm64.deb",
+    "name": "pgedge-postgresql-16-lolor-dbgsym",
+    "sha256": "134ff254ca8836c20aa701044cbbd17095a2272aa55758239a15a45447027983",
+    "size": 76064,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor-dbgsym_1.2.3-1.trixie_arm64.deb",
+    "version": "1.2.3-1.trixie"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-16-lolor_1.2.3-1.trixie_arm64.deb",
+    "name": "pgedge-postgresql-16-lolor",
+    "sha256": "6dab002ab6a2af328a9b09b4f03e19f924b12dd85010fe53e63a6336c68927da",
+    "size": 65354,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-16-lolor_1.2.3-1.trixie_arm64.deb",
+    "version": "1.2.3-1.trixie"
+   }
+  ],
+  "pepcell.v1.deb.trixie.arm64.pkg.pg17": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.trixie_arm64.deb",
+    "name": "pgedge-postgresql-17-lolor-dbgsym",
+    "sha256": "6457c38d63391c3a56a03e023c0b19015edace942545885f070cfd44ca96a893",
+    "size": 78256,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor-dbgsym_1.2.3-1.trixie_arm64.deb",
+    "version": "1.2.3-1.trixie"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-17-lolor_1.2.3-1.trixie_arm64.deb",
+    "name": "pgedge-postgresql-17-lolor",
+    "sha256": "a225c85a1bccfdfe558997e0be26aa37f7c19ca68b295ab814680d2be2d3aa6a",
+    "size": 65350,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-17-lolor_1.2.3-1.trixie_arm64.deb",
+    "version": "1.2.3-1.trixie"
+   }
+  ],
+  "pepcell.v1.deb.trixie.arm64.pkg.pg18": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.trixie_arm64.deb",
+    "name": "pgedge-postgresql-18-lolor-dbgsym",
+    "sha256": "ab84fd3f45c7a37128580b1346ae3aadf21c754f8787325aac3bf2cc354657a7",
+    "size": 80198,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor-dbgsym_1.2.3-1.trixie_arm64.deb",
+    "version": "1.2.3-1.trixie"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-18-lolor_1.2.3-1.trixie_arm64.deb",
+    "name": "pgedge-postgresql-18-lolor",
+    "sha256": "9004890d140a2e6cd1b1b09156db5b7f0f8b276930bc257379404b98a34b0f56",
+    "size": 65336,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-18-lolor_1.2.3-1.trixie_arm64.deb",
+    "version": "1.2.3-1.trixie"
+   }
+  ],
+  "pepcell.v1.deb.trixie.arm64.pkg.pg19": [
+   {
+    "arch": "arm64",
+    "class": "debug",
+    "file": "pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.trixie_arm64.deb",
+    "name": "pgedge-postgresql-19-lolor-dbgsym",
+    "sha256": "eed951535276ba4517b78396ea8311337b2a0cd31762a414fdd74790f8ac3de8",
+    "size": 69230,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor-dbgsym_1.2.3-1.trixie_arm64.deb",
+    "version": "1.2.3-1.trixie"
+   },
+   {
+    "arch": "arm64",
+    "class": "runtime",
+    "file": "pgedge-postgresql-19-lolor_1.2.3-1.trixie_arm64.deb",
+    "name": "pgedge-postgresql-19-lolor",
+    "sha256": "789e5c57ddbff8043c354e52b553fa1d1d2f1c7e432b841ad716d62c48387279",
+    "size": 65322,
+    "url": "https://apt.pgedge.com/release/trixie/pool/main/p/pgedge-lolor/pgedge-postgresql-19-lolor_1.2.3-1.trixie_arm64.deb",
+    "version": "1.2.3-1.trixie"
+   }
+  ],
+  "pepcell.v1.rpm.el-10.amd64.pkg.pg16": [
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_16-1.2.3-1.el10.src.rpm",
+    "name": "pgedge-lolor_16",
+    "sha256": "bd6cca9847f0ba62dd5440072db2dabafc89901480044f6de9eb44d7cd2618ef",
+    "size": 154203,
+    "url": "https://dnf.pgedge.com/release/10/SRPMS/pgedge-lolor_16-1.2.3-1.el10.src.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "runtime",
+    "file": "pgedge-lolor_16-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_16",
+    "sha256": "91a5bf93bd6fdda31e2bb48c7fdca54cdd3e3adc43451516167e02d8e224079c",
+    "size": 34876,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_16-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_16-debuginfo-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_16-debuginfo",
+    "sha256": "7513e8349600a32236d7c8a76a3445d34d0ab7c3550a0ed578609f7887361b26",
+    "size": 88429,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_16-debuginfo-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_16-debugsource-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_16-debugsource",
+    "sha256": "10880befff361be8c1fb6ad5ab0f479aa38861ac5a02f31c8fc33bb7d479a89c",
+    "size": 24534,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_16-debugsource-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_16-llvmjit-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_16-llvmjit",
+    "sha256": "affa99b1485f66c8fd9568dffe7e2e0bb412c6d6bfabca5e84cb4eb972eeaf22",
+    "size": 42890,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_16-llvmjit-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   }
+  ],
+  "pepcell.v1.rpm.el-10.amd64.pkg.pg17": [
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_17-1.2.3-1.el10.src.rpm",
+    "name": "pgedge-lolor_17",
+    "sha256": "d4e3d9ac0bcb92c23af957a46549144127efb275c17a06ca66928595d7b55ae7",
+    "size": 154203,
+    "url": "https://dnf.pgedge.com/release/10/SRPMS/pgedge-lolor_17-1.2.3-1.el10.src.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "runtime",
+    "file": "pgedge-lolor_17-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_17",
+    "sha256": "111198af035771f31710e0441d8bb35b9a0fd9690d858be71bfc5bc293337d24",
+    "size": 34870,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_17-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_17-debuginfo-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_17-debuginfo",
+    "sha256": "bec7c9b21b29a291648e33f975b5276f263bfb7f0febd846ebcf3d5e7fc0f3e2",
+    "size": 92252,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_17-debuginfo-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_17-debugsource-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_17-debugsource",
+    "sha256": "893667dd3a9ae789afa06a028078ae0ee5d14439b5faac25abc30f83990ed79b",
+    "size": 24534,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_17-debugsource-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_17-llvmjit-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_17-llvmjit",
+    "sha256": "93fd13f0b3afb0c6185df3f94c2e8be264b3334ef0609a876619838140f3335c",
+    "size": 42900,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_17-llvmjit-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   }
+  ],
+  "pepcell.v1.rpm.el-10.amd64.pkg.pg18": [
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_18-1.2.3-1.el10.src.rpm",
+    "name": "pgedge-lolor_18",
+    "sha256": "3a00e3e0128b174a3de02b14ab3a6430f3f311ed96488ddabd9e2f6bb2161bc1",
+    "size": 154203,
+    "url": "https://dnf.pgedge.com/release/10/SRPMS/pgedge-lolor_18-1.2.3-1.el10.src.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "runtime",
+    "file": "pgedge-lolor_18-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_18",
+    "sha256": "4712cf98607bc2e15e91da372afc35ef8bedc6543e7c869ecf1dc3ee049e4679",
+    "size": 34852,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_18-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_18-debuginfo-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_18-debuginfo",
+    "sha256": "2f0cb56132b41d3009233517f9538eda1a75d1a8b94e370120290f93a70c9819",
+    "size": 95143,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_18-debuginfo-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_18-debugsource-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_18-debugsource",
+    "sha256": "5f1919d8effd001590dd5975300e135e476e03033b28fb630a1030850a6e20eb",
+    "size": 24534,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_18-debugsource-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_18-llvmjit-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_18-llvmjit",
+    "sha256": "7e4e2a0ca4067a6711ac7367e361eb3860cd40fc3b6ecdde93413320d3c2b88a",
+    "size": 42823,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_18-llvmjit-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   }
+  ],
+  "pepcell.v1.rpm.el-10.amd64.pkg.pg19": [
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_19-1.2.3-1.el10.src.rpm",
+    "name": "pgedge-lolor_19",
+    "sha256": "1ea2e4b11f2e254e06f46c92bedafd8499160af6f01de8e76664bb751087e1ac",
+    "size": 154203,
+    "url": "https://dnf.pgedge.com/release/10/SRPMS/pgedge-lolor_19-1.2.3-1.el10.src.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "runtime",
+    "file": "pgedge-lolor_19-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_19",
+    "sha256": "d9560b2c0353754829b9429de9288ff292fd3b43501d01fd3367c4a9ccd654a6",
+    "size": 35707,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_19-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_19-debuginfo-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_19-debuginfo",
+    "sha256": "0b59c5e762c0acc0930f3a77ad8ce9d2fc0cbbcac0357f25e1897bdf16033b6e",
+    "size": 82970,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_19-debuginfo-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_19-debugsource-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_19-debugsource",
+    "sha256": "978f4ca870ab95bd147308afb44f232ef3eb0ae0dd3306e8d7e3d3109bb266ce",
+    "size": 24534,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_19-debugsource-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "x86_64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_19-llvmjit-1.2.3-1.el10.x86_64.rpm",
+    "name": "pgedge-lolor_19-llvmjit",
+    "sha256": "ffbdd7131750f70447294a3ec78c9a1b72594dab72cb1bf698e1dd7f9c73ab8a",
+    "size": 45432,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/x86_64/pgedge-lolor_19-llvmjit-1.2.3-1.el10.x86_64.rpm",
+    "version": "1.2.3-1.el10"
+   }
+  ],
+  "pepcell.v1.rpm.el-10.arm64.pkg.pg16": [
+   {
+    "arch": "aarch64",
+    "class": "runtime",
+    "file": "pgedge-lolor_16-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_16",
+    "sha256": "5cfdaca6ed4e6ad4319986df266cd1618cbac79b11bfc5a14d91f9420cf5f8ae",
+    "size": 33912,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_16-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_16-1.2.3-1.el10.src.rpm",
+    "name": "pgedge-lolor_16",
+    "sha256": "bd6cca9847f0ba62dd5440072db2dabafc89901480044f6de9eb44d7cd2618ef",
+    "size": 154203,
+    "url": "https://dnf.pgedge.com/release/10/SRPMS/pgedge-lolor_16-1.2.3-1.el10.src.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_16-debuginfo-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_16-debuginfo",
+    "sha256": "8bcbf044885b2bd16dbc747f586f0af4bb190df2ef8edb86008004a26867a73b",
+    "size": 85832,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_16-debuginfo-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_16-debugsource-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_16-debugsource",
+    "sha256": "67f3baf4b170fe0425878aeec329b552c1d62c0b49036e12e425d42d4d6ed716",
+    "size": 24494,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_16-debugsource-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_16-llvmjit-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_16-llvmjit",
+    "sha256": "b7b5bfd93c41a562fa7eb0ab8c312f238a41f04262122ff734fc129e3e2a1725",
+    "size": 42904,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_16-llvmjit-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   }
+  ],
+  "pepcell.v1.rpm.el-10.arm64.pkg.pg17": [
+   {
+    "arch": "aarch64",
+    "class": "runtime",
+    "file": "pgedge-lolor_17-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_17",
+    "sha256": "594efb3d10a1841d21a5bbafb155e14d19cdb3188ac51100db9ed806479d2756",
+    "size": 33937,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_17-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_17-1.2.3-1.el10.src.rpm",
+    "name": "pgedge-lolor_17",
+    "sha256": "d4e3d9ac0bcb92c23af957a46549144127efb275c17a06ca66928595d7b55ae7",
+    "size": 154203,
+    "url": "https://dnf.pgedge.com/release/10/SRPMS/pgedge-lolor_17-1.2.3-1.el10.src.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_17-debuginfo-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_17-debuginfo",
+    "sha256": "94b7322cfac8f24d55259afd95c89fd4264a4dbfa372723685481ecb5972ff1f",
+    "size": 89812,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_17-debuginfo-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_17-debugsource-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_17-debugsource",
+    "sha256": "11887762460f9b98959f66ad34e7041360c9a0bb459bdf3950e6d84fcc6ea328",
+    "size": 24494,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_17-debugsource-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_17-llvmjit-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_17-llvmjit",
+    "sha256": "b6ac931db0319d5943e9e106e12ec289be9106904c099ca9854bd230d1cc8ee4",
+    "size": 42911,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_17-llvmjit-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   }
+  ],
+  "pepcell.v1.rpm.el-10.arm64.pkg.pg18": [
+   {
+    "arch": "aarch64",
+    "class": "runtime",
+    "file": "pgedge-lolor_18-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_18",
+    "sha256": "5be4ff4a8e86ea75c928dc82cd6a986b45feda6b146465301b858b767c68a9ad",
+    "size": 33925,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_18-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_18-1.2.3-1.el10.src.rpm",
+    "name": "pgedge-lolor_18",
+    "sha256": "3a00e3e0128b174a3de02b14ab3a6430f3f311ed96488ddabd9e2f6bb2161bc1",
+    "size": 154203,
+    "url": "https://dnf.pgedge.com/release/10/SRPMS/pgedge-lolor_18-1.2.3-1.el10.src.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_18-debuginfo-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_18-debuginfo",
+    "sha256": "7d79f3f6625bada387ac8c4aac202d265f77062d4e31df971c3e5eb6ec7206da",
+    "size": 92510,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_18-debuginfo-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_18-debugsource-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_18-debugsource",
+    "sha256": "e8335d8f1025dcb29a59aac08ec2380bdf19659c5d57bc5f3961c8ce49795929",
+    "size": 24494,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_18-debugsource-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_18-llvmjit-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_18-llvmjit",
+    "sha256": "44199577549dcdbb9376ac83e3ff535259a55fd24bd990b6662c844838f3ef24",
+    "size": 42893,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_18-llvmjit-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   }
+  ],
+  "pepcell.v1.rpm.el-10.arm64.pkg.pg19": [
+   {
+    "arch": "aarch64",
+    "class": "runtime",
+    "file": "pgedge-lolor_19-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_19",
+    "sha256": "cdd8e04f48ad894e2a9d17576fb251d670b45c727207b96b07b5dc944f6dd9fa",
+    "size": 34768,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_19-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_19-1.2.3-1.el10.src.rpm",
+    "name": "pgedge-lolor_19",
+    "sha256": "1ea2e4b11f2e254e06f46c92bedafd8499160af6f01de8e76664bb751087e1ac",
+    "size": 154203,
+    "url": "https://dnf.pgedge.com/release/10/SRPMS/pgedge-lolor_19-1.2.3-1.el10.src.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_19-debuginfo-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_19-debuginfo",
+    "sha256": "fe3ba0ed75465f8294918a2aa8096f5b219694b5f91f7a26931d6082bc72663e",
+    "size": 79955,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_19-debuginfo-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_19-debugsource-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_19-debugsource",
+    "sha256": "eb08cb923298d4a18437820e2ff02672c390407adcd15d2a3d115b1328b91dcd",
+    "size": 24494,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_19-debugsource-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   },
+   {
+    "arch": "aarch64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_19-llvmjit-1.2.3-1.el10.aarch64.rpm",
+    "name": "pgedge-lolor_19-llvmjit",
+    "sha256": "6464427a5bbe28e7f31730ab0623b496bba12c30245d4ea8b8c3d442954502d2",
+    "size": 45386,
+    "url": "https://dnf.pgedge.com/release/10/RPMS/aarch64/pgedge-lolor_19-llvmjit-1.2.3-1.el10.aarch64.rpm",
+    "version": "1.2.3-1.el10"
+   }
+  ],
+  "pepcell.v1.rpm.el-9.amd64.pkg.pg16": [
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_16-1.2.3-1.el9.src.rpm",
+    "name": "pgedge-lolor_16",
+    "sha256": "62685a12b758a3215f014546ff41faa39cd8e70e12c15145e8d0190ef4d0ecb8",
+    "size": 150495,
+    "url": "https://dnf.pgedge.com/release/9/SRPMS/pgedge-lolor_16-1.2.3-1.el9.src.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "runtime",
+    "file": "pgedge-lolor_16-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_16",
+    "sha256": "05db40c925d8689ccdfd48c5146d0467f63e17b7c00ec179ce85c31aff9dcb7b",
+    "size": 34485,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_16-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_16-debuginfo-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_16-debuginfo",
+    "sha256": "3cd9f31c686a63a208b78a323b94d6453493a4f5c0503ab39ca6ce6531956b71",
+    "size": 88034,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_16-debuginfo-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_16-debugsource-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_16-debugsource",
+    "sha256": "3d21ab8337a6453dac5527348641b472c2e55d1e3525477b9c14d73ccf29d253",
+    "size": 24389,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_16-debugsource-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_16-llvmjit-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_16-llvmjit",
+    "sha256": "93921544b2df5fbf105432b97c331a3c01508d623764ad3cb358e209b90e447c",
+    "size": 42728,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_16-llvmjit-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   }
+  ],
+  "pepcell.v1.rpm.el-9.amd64.pkg.pg17": [
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_17-1.2.3-1.el9.src.rpm",
+    "name": "pgedge-lolor_17",
+    "sha256": "a7b4deaed51c615d252835addd80c1ec3e01298f846c8df3f8a916e8712e626c",
+    "size": 150495,
+    "url": "https://dnf.pgedge.com/release/9/SRPMS/pgedge-lolor_17-1.2.3-1.el9.src.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "runtime",
+    "file": "pgedge-lolor_17-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_17",
+    "sha256": "b9cd9afa718e74b8f1a57a96f1877c2b32b4d8b7d33081fae118e129731e6e51",
+    "size": 34483,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_17-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_17-debuginfo-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_17-debuginfo",
+    "sha256": "2fb817ae4380c108b686e62c14714461719956ff25c069f5a0d2590a013af9bd",
+    "size": 91535,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_17-debuginfo-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_17-debugsource-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_17-debugsource",
+    "sha256": "aae3d04875b0901213654dfd90a98a31fc982efd66aaa2154512ceefa2708281",
+    "size": 24389,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_17-debugsource-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_17-llvmjit-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_17-llvmjit",
+    "sha256": "81fca51750b99867f005a8f1bf65b7af60560eff8f4ee508c95778f87898884b",
+    "size": 42730,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_17-llvmjit-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   }
+  ],
+  "pepcell.v1.rpm.el-9.amd64.pkg.pg18": [
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_18-1.2.3-1.el9.src.rpm",
+    "name": "pgedge-lolor_18",
+    "sha256": "ae4d7f912eacb84385d12eddf8f4c715e33ca3aed7fe5f7fa265f750c5fd88ee",
+    "size": 150495,
+    "url": "https://dnf.pgedge.com/release/9/SRPMS/pgedge-lolor_18-1.2.3-1.el9.src.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "runtime",
+    "file": "pgedge-lolor_18-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_18",
+    "sha256": "e7048a98a3f2906a37efcde9a6cc697e43249c713690eb776b37167ffdbb3374",
+    "size": 34476,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_18-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_18-debuginfo-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_18-debuginfo",
+    "sha256": "e1e7efcee32ae52265b27c7aa8d603d35d968f9f9a6c1ddb3f473bea4ea27f29",
+    "size": 94253,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_18-debuginfo-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_18-debugsource-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_18-debugsource",
+    "sha256": "c37d456bbd37a2e050cdd39b2afdfc7dee46f965650df5b71afbc093266d7d1a",
+    "size": 24390,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_18-debugsource-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_18-llvmjit-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_18-llvmjit",
+    "sha256": "4e2d9ed773625350926a1cc33941f21c7ebcef941913697f774ce834dcbec5e6",
+    "size": 42660,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_18-llvmjit-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   }
+  ],
+  "pepcell.v1.rpm.el-9.amd64.pkg.pg19": [
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_19-1.2.3-1.el9.src.rpm",
+    "name": "pgedge-lolor_19",
+    "sha256": "be840ae8527df0d291c2e732ed3c872b5f0db3d13788c39becbd0c0ebc64123b",
+    "size": 150492,
+    "url": "https://dnf.pgedge.com/release/9/SRPMS/pgedge-lolor_19-1.2.3-1.el9.src.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "runtime",
+    "file": "pgedge-lolor_19-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_19",
+    "sha256": "0a06b6e3b2751d160316aa094a705c585de7a243a531a4eea76a73fd9df5a17a",
+    "size": 35364,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_19-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_19-debuginfo-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_19-debuginfo",
+    "sha256": "c56b60cf0d0613275e89e35837a30631040ae975cd540f683626be627beaa3a6",
+    "size": 81226,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_19-debuginfo-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "debug",
+    "file": "pgedge-lolor_19-debugsource-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_19-debugsource",
+    "sha256": "df683fb76a798dad13f7f93243f26bde9fabcc94be3595d749a34fbdbe8bd6eb",
+    "size": 24391,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_19-debugsource-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "x86_64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_19-llvmjit-1.2.3-1.el9.x86_64.rpm",
+    "name": "pgedge-lolor_19-llvmjit",
+    "sha256": "ceef8f8bfcabe38d39a82378d11b6c42acce5d58de57b83a2a07600d3c8cc715",
+    "size": 45290,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/x86_64/pgedge-lolor_19-llvmjit-1.2.3-1.el9.x86_64.rpm",
+    "version": "1.2.3-1.el9"
+   }
+  ],
+  "pepcell.v1.rpm.el-9.arm64.pkg.pg16": [
+   {
+    "arch": "aarch64",
+    "class": "runtime",
+    "file": "pgedge-lolor_16-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_16",
+    "sha256": "aa1b69854cd7318d89fdb18177f8b47e827e3424bd231616cf14b502be1717fe",
+    "size": 33615,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_16-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_16-1.2.3-1.el9.src.rpm",
+    "name": "pgedge-lolor_16",
+    "sha256": "62685a12b758a3215f014546ff41faa39cd8e70e12c15145e8d0190ef4d0ecb8",
+    "size": 150495,
+    "url": "https://dnf.pgedge.com/release/9/SRPMS/pgedge-lolor_16-1.2.3-1.el9.src.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_16-debuginfo-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_16-debuginfo",
+    "sha256": "f437092cf25f5cc0e470282fd147b345fb9988a7e963784ec8b3db7601f223cb",
+    "size": 86519,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_16-debuginfo-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_16-debugsource-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_16-debugsource",
+    "sha256": "5a707aad26a1e9d881f8035175c3906c1fc2cb6d5fb960c29ab9046e6366bfe3",
+    "size": 24339,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_16-debugsource-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_16-llvmjit-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_16-llvmjit",
+    "sha256": "40ac5f8d5d5653ee09aa3c6207beddc02ba99d8389863ba95993ef71f5f2677f",
+    "size": 42746,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_16-llvmjit-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   }
+  ],
+  "pepcell.v1.rpm.el-9.arm64.pkg.pg17": [
+   {
+    "arch": "aarch64",
+    "class": "runtime",
+    "file": "pgedge-lolor_17-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_17",
+    "sha256": "7323252d73f7fd3754c6031c4dd63344754900985a8bb0d9e5e9fcbb028220c2",
+    "size": 33610,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_17-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_17-1.2.3-1.el9.src.rpm",
+    "name": "pgedge-lolor_17",
+    "sha256": "a7b4deaed51c615d252835addd80c1ec3e01298f846c8df3f8a916e8712e626c",
+    "size": 150495,
+    "url": "https://dnf.pgedge.com/release/9/SRPMS/pgedge-lolor_17-1.2.3-1.el9.src.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_17-debuginfo-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_17-debuginfo",
+    "sha256": "2aded55e03a4562f19b26aa6faf8f182195a09df0277e977af347dd72e05661e",
+    "size": 89506,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_17-debuginfo-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_17-debugsource-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_17-debugsource",
+    "sha256": "2389848be62af7339fac3eea29d3aad3407d12770cbd9b47d6c45605578ff80f",
+    "size": 24341,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_17-debugsource-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_17-llvmjit-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_17-llvmjit",
+    "sha256": "55769a2bba274ec5f5f273e5ba8b1dee53d74d3b447ef7cf3ac0bd112b03ffec",
+    "size": 42751,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_17-llvmjit-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   }
+  ],
+  "pepcell.v1.rpm.el-9.arm64.pkg.pg18": [
+   {
+    "arch": "aarch64",
+    "class": "runtime",
+    "file": "pgedge-lolor_18-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_18",
+    "sha256": "66d65d49125ace2a88b59a3e3f81321359aabbf4e6f30ff201545bcbc732f49d",
+    "size": 33585,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_18-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_18-1.2.3-1.el9.src.rpm",
+    "name": "pgedge-lolor_18",
+    "sha256": "ae4d7f912eacb84385d12eddf8f4c715e33ca3aed7fe5f7fa265f750c5fd88ee",
+    "size": 150495,
+    "url": "https://dnf.pgedge.com/release/9/SRPMS/pgedge-lolor_18-1.2.3-1.el9.src.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_18-debuginfo-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_18-debuginfo",
+    "sha256": "bb02f7ae41ee6f6619dca68d86f7ea0795cdf858a2bdc3886b3c98552f734474",
+    "size": 92699,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_18-debuginfo-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_18-debugsource-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_18-debugsource",
+    "sha256": "9037d136eb0ea9fda508fac312e1894928c5b916973000481d5e2b8c0abe4de6",
+    "size": 24339,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_18-debugsource-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_18-llvmjit-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_18-llvmjit",
+    "sha256": "a03ad009e72b9f98155338829dd2c881ba45e7b9fed92ac952593a29ff7babde",
+    "size": 42737,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_18-llvmjit-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   }
+  ],
+  "pepcell.v1.rpm.el-9.arm64.pkg.pg19": [
+   {
+    "arch": "aarch64",
+    "class": "runtime",
+    "file": "pgedge-lolor_19-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_19",
+    "sha256": "1e99a00cdd19caa7e4ce39a1a4deee58102d3d11bb1dc8a4a5019b918bbeba9e",
+    "size": 34430,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_19-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "src",
+    "class": "source",
+    "file": "pgedge-lolor_19-1.2.3-1.el9.src.rpm",
+    "name": "pgedge-lolor_19",
+    "sha256": "be840ae8527df0d291c2e732ed3c872b5f0db3d13788c39becbd0c0ebc64123b",
+    "size": 150492,
+    "url": "https://dnf.pgedge.com/release/9/SRPMS/pgedge-lolor_19-1.2.3-1.el9.src.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_19-debuginfo-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_19-debuginfo",
+    "sha256": "7b5e79311a7c8ed1b1c46df89c4bda9183c4a58a048a76ef254ef76be96c1af2",
+    "size": 80197,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_19-debuginfo-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "debug",
+    "file": "pgedge-lolor_19-debugsource-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_19-debugsource",
+    "sha256": "7039819e83a304736b06d621d14ab7b269053249dcd78cae01f8af3014f18b03",
+    "size": 24341,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_19-debugsource-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   },
+   {
+    "arch": "aarch64",
+    "class": "llvmjit",
+    "file": "pgedge-lolor_19-llvmjit-1.2.3-1.el9.aarch64.rpm",
+    "name": "pgedge-lolor_19-llvmjit",
+    "sha256": "e841f0f522314eeb25e416cb7a22654a5434376c869feca40c8c6e94592bad2f",
+    "size": 45228,
+    "url": "https://dnf.pgedge.com/release/9/RPMS/aarch64/pgedge-lolor_19-llvmjit-1.2.3-1.el9.aarch64.rpm",
+    "version": "1.2.3-1.el9"
+   }
+  ]
+ },
+ "channel": "release",
+ "detector": {
+  "pepcell.v1.deb.bookworm.amd64.pkg.pg16": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "debian:bookworm",
+   "os": "bookworm",
+   "pg_major": "16"
+  },
+  "pepcell.v1.deb.bookworm.amd64.pkg.pg17": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "debian:bookworm",
+   "os": "bookworm",
+   "pg_major": "17"
+  },
+  "pepcell.v1.deb.bookworm.amd64.pkg.pg18": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "debian:bookworm",
+   "os": "bookworm",
+   "pg_major": "18"
+  },
+  "pepcell.v1.deb.bookworm.amd64.pkg.pg19": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "debian:bookworm",
+   "os": "bookworm",
+   "pg_major": "19"
+  },
+  "pepcell.v1.deb.bookworm.arm64.pkg.pg16": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "debian:bookworm",
+   "os": "bookworm",
+   "pg_major": "16"
+  },
+  "pepcell.v1.deb.bookworm.arm64.pkg.pg17": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "debian:bookworm",
+   "os": "bookworm",
+   "pg_major": "17"
+  },
+  "pepcell.v1.deb.bookworm.arm64.pkg.pg18": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "debian:bookworm",
+   "os": "bookworm",
+   "pg_major": "18"
+  },
+  "pepcell.v1.deb.bookworm.arm64.pkg.pg19": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "debian:bookworm",
+   "os": "bookworm",
+   "pg_major": "19"
+  },
+  "pepcell.v1.deb.jammy.amd64.pkg.pg16": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:jammy",
+   "os": "jammy",
+   "pg_major": "16"
+  },
+  "pepcell.v1.deb.jammy.amd64.pkg.pg17": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:jammy",
+   "os": "jammy",
+   "pg_major": "17"
+  },
+  "pepcell.v1.deb.jammy.amd64.pkg.pg18": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:jammy",
+   "os": "jammy",
+   "pg_major": "18"
+  },
+  "pepcell.v1.deb.jammy.amd64.pkg.pg19": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:jammy",
+   "os": "jammy",
+   "pg_major": "19"
+  },
+  "pepcell.v1.deb.jammy.arm64.pkg.pg16": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:jammy",
+   "os": "jammy",
+   "pg_major": "16"
+  },
+  "pepcell.v1.deb.jammy.arm64.pkg.pg17": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:jammy",
+   "os": "jammy",
+   "pg_major": "17"
+  },
+  "pepcell.v1.deb.jammy.arm64.pkg.pg18": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:jammy",
+   "os": "jammy",
+   "pg_major": "18"
+  },
+  "pepcell.v1.deb.jammy.arm64.pkg.pg19": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:jammy",
+   "os": "jammy",
+   "pg_major": "19"
+  },
+  "pepcell.v1.deb.noble.amd64.pkg.pg16": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:noble",
+   "os": "noble",
+   "pg_major": "16"
+  },
+  "pepcell.v1.deb.noble.amd64.pkg.pg17": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:noble",
+   "os": "noble",
+   "pg_major": "17"
+  },
+  "pepcell.v1.deb.noble.amd64.pkg.pg18": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:noble",
+   "os": "noble",
+   "pg_major": "18"
+  },
+  "pepcell.v1.deb.noble.amd64.pkg.pg19": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:noble",
+   "os": "noble",
+   "pg_major": "19"
+  },
+  "pepcell.v1.deb.noble.arm64.pkg.pg16": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:noble",
+   "os": "noble",
+   "pg_major": "16"
+  },
+  "pepcell.v1.deb.noble.arm64.pkg.pg17": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:noble",
+   "os": "noble",
+   "pg_major": "17"
+  },
+  "pepcell.v1.deb.noble.arm64.pkg.pg18": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:noble",
+   "os": "noble",
+   "pg_major": "18"
+  },
+  "pepcell.v1.deb.noble.arm64.pkg.pg19": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:noble",
+   "os": "noble",
+   "pg_major": "19"
+  },
+  "pepcell.v1.deb.resolute.amd64.pkg.pg16": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:resolute",
+   "os": "resolute",
+   "pg_major": "16"
+  },
+  "pepcell.v1.deb.resolute.amd64.pkg.pg17": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:resolute",
+   "os": "resolute",
+   "pg_major": "17"
+  },
+  "pepcell.v1.deb.resolute.amd64.pkg.pg18": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:resolute",
+   "os": "resolute",
+   "pg_major": "18"
+  },
+  "pepcell.v1.deb.resolute.amd64.pkg.pg19": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "ubuntu:resolute",
+   "os": "resolute",
+   "pg_major": "19"
+  },
+  "pepcell.v1.deb.resolute.arm64.pkg.pg16": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:resolute",
+   "os": "resolute",
+   "pg_major": "16"
+  },
+  "pepcell.v1.deb.resolute.arm64.pkg.pg17": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:resolute",
+   "os": "resolute",
+   "pg_major": "17"
+  },
+  "pepcell.v1.deb.resolute.arm64.pkg.pg18": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:resolute",
+   "os": "resolute",
+   "pg_major": "18"
+  },
+  "pepcell.v1.deb.resolute.arm64.pkg.pg19": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "ubuntu:resolute",
+   "os": "resolute",
+   "pg_major": "19"
+  },
+  "pepcell.v1.deb.trixie.amd64.pkg.pg16": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "debian:trixie",
+   "os": "trixie",
+   "pg_major": "16"
+  },
+  "pepcell.v1.deb.trixie.amd64.pkg.pg17": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "debian:trixie",
+   "os": "trixie",
+   "pg_major": "17"
+  },
+  "pepcell.v1.deb.trixie.amd64.pkg.pg18": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "debian:trixie",
+   "os": "trixie",
+   "pg_major": "18"
+  },
+  "pepcell.v1.deb.trixie.amd64.pkg.pg19": {
+   "arch": "amd64",
+   "family": "deb",
+   "image": "debian:trixie",
+   "os": "trixie",
+   "pg_major": "19"
+  },
+  "pepcell.v1.deb.trixie.arm64.pkg.pg16": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "debian:trixie",
+   "os": "trixie",
+   "pg_major": "16"
+  },
+  "pepcell.v1.deb.trixie.arm64.pkg.pg17": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "debian:trixie",
+   "os": "trixie",
+   "pg_major": "17"
+  },
+  "pepcell.v1.deb.trixie.arm64.pkg.pg18": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "debian:trixie",
+   "os": "trixie",
+   "pg_major": "18"
+  },
+  "pepcell.v1.deb.trixie.arm64.pkg.pg19": {
+   "arch": "arm64",
+   "family": "deb",
+   "image": "debian:trixie",
+   "os": "trixie",
+   "pg_major": "19"
+  },
+  "pepcell.v1.rpm.el-10.amd64.pkg.pg16": {
+   "arch": "amd64",
+   "family": "rpm",
+   "image": "almalinux:10",
+   "os": "el-10",
+   "pg_major": "16"
+  },
+  "pepcell.v1.rpm.el-10.amd64.pkg.pg17": {
+   "arch": "amd64",
+   "family": "rpm",
+   "image": "almalinux:10",
+   "os": "el-10",
+   "pg_major": "17"
+  },
+  "pepcell.v1.rpm.el-10.amd64.pkg.pg18": {
+   "arch": "amd64",
+   "family": "rpm",
+   "image": "almalinux:10",
+   "os": "el-10",
+   "pg_major": "18"
+  },
+  "pepcell.v1.rpm.el-10.amd64.pkg.pg19": {
+   "arch": "amd64",
+   "family": "rpm",
+   "image": "almalinux:10",
+   "os": "el-10",
+   "pg_major": "19"
+  },
+  "pepcell.v1.rpm.el-10.arm64.pkg.pg16": {
+   "arch": "arm64",
+   "family": "rpm",
+   "image": "almalinux:10",
+   "os": "el-10",
+   "pg_major": "16"
+  },
+  "pepcell.v1.rpm.el-10.arm64.pkg.pg17": {
+   "arch": "arm64",
+   "family": "rpm",
+   "image": "almalinux:10",
+   "os": "el-10",
+   "pg_major": "17"
+  },
+  "pepcell.v1.rpm.el-10.arm64.pkg.pg18": {
+   "arch": "arm64",
+   "family": "rpm",
+   "image": "almalinux:10",
+   "os": "el-10",
+   "pg_major": "18"
+  },
+  "pepcell.v1.rpm.el-10.arm64.pkg.pg19": {
+   "arch": "arm64",
+   "family": "rpm",
+   "image": "almalinux:10",
+   "os": "el-10",
+   "pg_major": "19"
+  },
+  "pepcell.v1.rpm.el-9.amd64.pkg.pg16": {
+   "arch": "amd64",
+   "family": "rpm",
+   "image": "almalinux:9",
+   "os": "el-9",
+   "pg_major": "16"
+  },
+  "pepcell.v1.rpm.el-9.amd64.pkg.pg17": {
+   "arch": "amd64",
+   "family": "rpm",
+   "image": "almalinux:9",
+   "os": "el-9",
+   "pg_major": "17"
+  },
+  "pepcell.v1.rpm.el-9.amd64.pkg.pg18": {
+   "arch": "amd64",
+   "family": "rpm",
+   "image": "almalinux:9",
+   "os": "el-9",
+   "pg_major": "18"
+  },
+  "pepcell.v1.rpm.el-9.amd64.pkg.pg19": {
+   "arch": "amd64",
+   "family": "rpm",
+   "image": "almalinux:9",
+   "os": "el-9",
+   "pg_major": "19"
+  },
+  "pepcell.v1.rpm.el-9.arm64.pkg.pg16": {
+   "arch": "arm64",
+   "family": "rpm",
+   "image": "almalinux:9",
+   "os": "el-9",
+   "pg_major": "16"
+  },
+  "pepcell.v1.rpm.el-9.arm64.pkg.pg17": {
+   "arch": "arm64",
+   "family": "rpm",
+   "image": "almalinux:9",
+   "os": "el-9",
+   "pg_major": "17"
+  },
+  "pepcell.v1.rpm.el-9.arm64.pkg.pg18": {
+   "arch": "arm64",
+   "family": "rpm",
+   "image": "almalinux:9",
+   "os": "el-9",
+   "pg_major": "18"
+  },
+  "pepcell.v1.rpm.el-9.arm64.pkg.pg19": {
+   "arch": "arm64",
+   "family": "rpm",
+   "image": "almalinux:9",
+   "os": "el-9",
+   "pg_major": "19"
+  }
+ },
+ "detector_source": "real detector output (lolor Release run 37756669120, job 113242799330, detector f54f427); identical detect inputs for snowflake, lolor and safesession",
+ "head_probe": {
+  "all_200_with_metadata_size": true,
+  "distinct_urls": 152
+ },
+ "metadata_documents": {
+  "https://apt.pgedge.com/release/bookworm/dists/bookworm/InRelease": {
+   "date": "Wed, 04 Nov 2026 09:40:02 UTC",
+   "sha256": "90552b71ce81348ae42f23ac5153c83c3153b5c2f22571810a1f6a0d355607a0",
+   "size": 3182
+  },
+  "https://apt.pgedge.com/release/bookworm/dists/bookworm/main/binary-amd64/Packages.gz": {
+   "matches_inrelease": true,
+   "sha256": "089dfefaf12b9509d662ceef723787120f94dac2a95577ad5bbe15bf1ca2842f",
+   "size": 78470
+  },
+  "https://apt.pgedge.com/release/bookworm/dists/bookworm/main/binary-arm64/Packages.gz": {
+   "matches_inrelease": true,
+   "sha256": "beea9d52bb68aa1cd7745818edbd9fe6a5b1232feee6dccaffbb34ddaee8e619",
+   "size": 78468
+  },
+  "https://apt.pgedge.com/release/jammy/dists/jammy/InRelease": {
+   "date": "Wed, 04 Nov 2026 09:42:50 UTC",
+   "sha256": "4e08455532ee3fa430ae4c13841a18bae05ac624344086a679f9e13872498cbf",
+   "size": 3176
+  },
+  "https://apt.pgedge.com/release/jammy/dists/jammy/main/binary-amd64/Packages.gz": {
+   "matches_inrelease": true,
+   "sha256": "4931245a81502da762a36c27114a09cc38b754c12e87f48084520ba3cabe5f09",
+   "size": 78511
+  },
+  "https://apt.pgedge.com/release/jammy/dists/jammy/main/binary-arm64/Packages.gz": {
+   "matches_inrelease": true,
+   "sha256": "49aa868c7c6a27dae6a5fa1728b834dbbe33595e807bf7b811272ff501b04347",
+   "size": 78471
+  },
+  "https://apt.pgedge.com/release/noble/dists/noble/InRelease": {
+   "date": "Wed, 04 Nov 2026 09:39:42 UTC",
+   "sha256": "8c7562c8cf3bd315df9c5382494cd4493cf9dd143d5b6c0c0c1d464914ce0349",
+   "size": 3176
+  },
+  "https://apt.pgedge.com/release/noble/dists/noble/main/binary-amd64/Packages.gz": {
+   "matches_inrelease": true,
+   "sha256": "ca3624c9170ea10c7eb0b612dd1423ce86f0b9dd9e7843ec5923b8c27ca3fe2d",
+   "size": 78521
+  },
+  "https://apt.pgedge.com/release/noble/dists/noble/main/binary-arm64/Packages.gz": {
+   "matches_inrelease": true,
+   "sha256": "c7732c12be284703b51aea3101e60c700d36796ecd7b1f845b91e2d57e14a7bd",
+   "size": 78464
+  },
+  "https://apt.pgedge.com/release/resolute/dists/resolute/InRelease": {
+   "date": "Wed, 04 Nov 2026 09:40:14 UTC",
+   "sha256": "82700c9a450d20f4cc8e06adaf2eb682a9e46424c265a2c1ae60745cec9125c5",
+   "size": 3182
+  },
+  "https://apt.pgedge.com/release/resolute/dists/resolute/main/binary-amd64/Packages.gz": {
+   "matches_inrelease": true,
+   "sha256": "a3da2c67cb7952d42fd24331b1151acb77c1af1e837d7458ef045969feecc79e",
+   "size": 78412
+  },
+  "https://apt.pgedge.com/release/resolute/dists/resolute/main/binary-arm64/Packages.gz": {
+   "matches_inrelease": true,
+   "sha256": "c663fb2aedce07418e107d2b426d96afbdf91e7f59a6f8542279aed6694251b0",
+   "size": 78417
+  },
+  "https://apt.pgedge.com/release/trixie/dists/trixie/InRelease": {
+   "date": "Wed, 04 Nov 2026 09:40:47 UTC",
+   "sha256": "df178fb4f7773497f52af5054e20612e9a2090151d0aca73b899ef53462ec529",
+   "size": 3178
+  },
+  "https://apt.pgedge.com/release/trixie/dists/trixie/main/binary-amd64/Packages.gz": {
+   "matches_inrelease": true,
+   "sha256": "062ba69271b4133162d8fd9692c39b8c55a98d36f704329c425d8f7d5c3b2338",
+   "size": 78557
+  },
+  "https://apt.pgedge.com/release/trixie/dists/trixie/main/binary-arm64/Packages.gz": {
+   "matches_inrelease": true,
+   "sha256": "2c590d0cbceae6333b04497d2be8e46017b1ad74112083a1627f44b5a9884949",
+   "size": 78480
+  },
+  "https://dnf.pgedge.com/release/10/RPMS/aarch64/repodata/2b250b66a8c92ee793a4761721e3e70d6fa9963e62076c37d789081dd83134b0-primary.xml.gz": {
+   "matches_repomd": true,
+   "sha256": "2b250b66a8c92ee793a4761721e3e70d6fa9963e62076c37d789081dd83134b0",
+   "size": 315503
+  },
+  "https://dnf.pgedge.com/release/10/RPMS/aarch64/repodata/repomd.xml": {
+   "revision": "1793785146",
+   "sha256": "cbd7918b88f95591ec7bdeb9928cbc0c0bb6a41a81597936dbf5dda20ee154ae",
+   "size": 3103
+  },
+  "https://dnf.pgedge.com/release/10/RPMS/x86_64/repodata/cbcce2ed1e1c9841ff21609c58a405bed097710649013182f7c9afec316e994a-primary.xml.gz": {
+   "matches_repomd": true,
+   "sha256": "cbcce2ed1e1c9841ff21609c58a405bed097710649013182f7c9afec316e994a",
+   "size": 314763
+  },
+  "https://dnf.pgedge.com/release/10/RPMS/x86_64/repodata/repomd.xml": {
+   "revision": "1793785173",
+   "sha256": "7be14e44b4876c2cbc2ec48c14205dedd9e4a41f78d04ad9cf251fdd2e913bf8",
+   "size": 3103
+  },
+  "https://dnf.pgedge.com/release/10/SRPMS/repodata/bb202f84026ab8239cb02a63cf08ede0827d43b447a2dd8a6b3e1c9e4b50159e-primary.xml.gz": {
+   "matches_repomd": true,
+   "sha256": "bb202f84026ab8239cb02a63cf08ede0827d43b447a2dd8a6b3e1c9e4b50159e",
+   "size": 44574
+  },
+  "https://dnf.pgedge.com/release/10/SRPMS/repodata/repomd.xml": {
+   "revision": "1793785215",
+   "sha256": "d654a9ace8dbc1459f51665068c1ff46e9e2c2e2eca031ff7643d4c25e1152e2",
+   "size": 3089
+  },
+  "https://dnf.pgedge.com/release/9/RPMS/aarch64/repodata/ca5943b75f523c1177ef7816c8b7ab762841b9ab6ed952a05d40d58420bbc387-primary.xml.gz": {
+   "matches_repomd": true,
+   "sha256": "ca5943b75f523c1177ef7816c8b7ab762841b9ab6ed952a05d40d58420bbc387",
+   "size": 314298
+  },
+  "https://dnf.pgedge.com/release/9/RPMS/aarch64/repodata/repomd.xml": {
+   "revision": "1793784966",
+   "sha256": "5a3c8c3ba45547e5c4631e8396a58d867c7612432379a8864827e0307c63c31f",
+   "size": 3103
+  },
+  "https://dnf.pgedge.com/release/9/RPMS/x86_64/repodata/f094e5b5cd0087eea9b5068de06389da0da8ae7d4c148a0898e987e61ee9b10a-primary.xml.gz": {
+   "matches_repomd": true,
+   "sha256": "f094e5b5cd0087eea9b5068de06389da0da8ae7d4c148a0898e987e61ee9b10a",
+   "size": 313701
+  },
+  "https://dnf.pgedge.com/release/9/RPMS/x86_64/repodata/repomd.xml": {
+   "revision": "1793784986",
+   "sha256": "452d953bbbb0c77e7f86306361f5c4ce02e85e520ba8a60d998e22257fb68b05",
+   "size": 3103
+  },
+  "https://dnf.pgedge.com/release/9/SRPMS/repodata/ea7c7117dbc019239574d64bcb6c4754a5842d586476a7c55f6442933f8d84bf-primary.xml.gz": {
+   "matches_repomd": true,
+   "sha256": "ea7c7117dbc019239574d64bcb6c4754a5842d586476a7c55f6442933f8d84bf",
+   "size": 46877
+  },
+  "https://dnf.pgedge.com/release/9/SRPMS/repodata/repomd.xml": {
+   "revision": "1793785027",
+   "sha256": "e4bc2d01dcfd72f62816e1576aa2c7fc318876b270c2fd71252f7c88b8367380",
+   "size": 3089
+  }
+ },
+ "product": "lolor",
+ "source_meta_sha256": "1be5696123028c283f5959e8f40db34730ec2e9cc84503d81aa9b4d5a4e44f5a",
+ "version": "1.2.3-1"
+}
