@@ -1,0 +1,253 @@
+#
+# Regression and TAP tests
+#
+# Runs "make installcheck" for lolor against every supported PostgreSQL
+# major: the SQL regression suite (sql/lolor.sql) and the TAP tests (t/).
+#
+# The Docker test workflow drives a three-node Spock cluster through the
+# JDBC and Python clients and runs neither of these.  They are where the
+# migration functions, the drop guard, the upgrade path, pg_upgrade,
+# dump and restore, and the version checks are tested.
+#
+# The TAP tests need a PostgreSQL configured with --enable-tap-tests, which
+# distribution packages do not ship, so PostgreSQL comes from source.  The
+# tests need no Spock: the regression suite starts its own temporary
+# instance that preloads lolor (see REGRESS_OPTS in the Makefile), and each
+# TAP test creates its own clusters.
+#
+# --enable-cassert is on so that the Assert() calls in lolor run, and so
+# that PostgreSQL checks lolor's use of its APIs.
+#
+# The PostgreSQL installation is cached, the same way Spock's workflows do
+# it; lolor never is.  The cache key names everything the installation is
+# built from, and a key is only restored on an exact match, so a change in
+# any of these means a fresh PostgreSQL build:
+#
+#   - the commit the PostgreSQL ref resolves to, not the ref name: a new
+#     minor release changes what the newest tag is, and the source is then
+#     fetched by that very commit, so the key and the build cannot disagree;
+#   - the configure options;
+#   - the compiler and libc6-dev versions, and the list of build packages;
+#   - the runner image OS and architecture;
+#   - PG_CACHE_EPOCH, bumped by hand to drop every cached build at once.
+#
+# In the usual run PostgreSQL is restored in a few seconds and only lolor
+# is compiled.  A manual run can bypass the cache with the rebuild-postgres
+# input.
+#
+
+name: Regression and TAP tests
+run-name: Run the lolor regression and TAP tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      rebuild-postgres:
+        description: Ignore cached PostgreSQL builds and compile them again
+        type: boolean
+        default: false
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regress-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # Explicit shell: GitHub then runs with -eo pipefail.
+    shell: bash
+
+jobs:
+  installcheck:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Matches the Docker test matrix in workflow.yml.
+        pgver: [16, 17, 18, 19]
+
+    name: PG ${{ matrix.pgver }}
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      PG_REMOTE: https://github.com/postgres/postgres.git
+      # Bump to invalidate every cached PostgreSQL build at once.
+      PG_CACHE_EPOCH: 1
+      PG_CONFIGURE_OPTS: --enable-tap-tests --enable-cassert
+      # Packages PostgreSQL is built against; the list, not the versions, is
+      # part of the cache key.  libipc-run-perl is what --enable-tap-tests
+      # requires, at configure time and when the tests run.
+      BUILD_DEPS: >-
+        build-essential bison flex pkg-config
+        libicu-dev libreadline-dev zlib1g-dev libipc-run-perl
+
+    steps:
+      - name: Checkout lolor
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          # shellcheck disable=SC2086
+          sudo apt-get install -y --no-install-recommends $BUILD_DEPS
+
+      # Same ladder as build-werror.yml: the newest stable minor tag of
+      # the major, then the newest RC, then the newest BETA, and finally
+      # the REL_x_STABLE branch for a major that is branched but not yet
+      # tagged.  Each selection ends in "|| true" because grep exits 1
+      # when a major has no tag of that kind, which is the normal case
+      # for a major that is not released yet.
+      #
+      # The ref is then pinned to the commit it names right now, and that
+      # commit goes into the cache key.  The paths are set here rather
+      # than in the job env so that the cached path is a plain absolute
+      # one, without the ".." that github.workspace would need.
+      - name: Compute PostgreSQL build key
+        id: key
+        run: |
+          WORKROOT=$(realpath -m "$GITHUB_WORKSPACE/..")
+          echo "PG_PREFIX=$WORKROOT/pg-install" >> "$GITHUB_ENV"
+          echo "PG_SRCDIR=$WORKROOT/postgres" >> "$GITHUB_ENV"
+
+          PG_TAGS=$(git ls-remote --tags --refs \
+            "$PG_REMOTE" "REL_${{ matrix.pgver }}_*" \
+            | awk -F/ '{print $NF}')
+          pick() { printf '%s\n' "$PG_TAGS" | grep -E "$1" | sort -V | tail -n 1 || true; }
+          PG_REF=$(pick "^REL_${{ matrix.pgver }}_[0-9]+$")
+          [ -n "$PG_REF" ] || PG_REF=$(pick "^REL_${{ matrix.pgver }}_RC[0-9]+$")
+          [ -n "$PG_REF" ] || PG_REF=$(pick "^REL_${{ matrix.pgver }}_BETA[0-9]+$")
+          if [ -n "$PG_REF" ]; then
+            PG_REF="refs/tags/$PG_REF"
+          elif git ls-remote --exit-code --heads \
+                 "$PG_REMOTE" "REL_${{ matrix.pgver }}_STABLE" >/dev/null; then
+            PG_REF="refs/heads/REL_${{ matrix.pgver }}_STABLE"
+          else
+            echo "::error::Failed to resolve a source ref for PostgreSQL ${{ matrix.pgver }}"
+            exit 1
+          fi
+
+          # An annotated tag lists the tag object and, with ^{}, the commit
+          # it points at; a lightweight tag or a branch lists the commit
+          # only.  Take the peeled line when there is one.
+          refs=$(git ls-remote "$PG_REMOTE" "$PG_REF" "$PG_REF^{}")
+          PG_COMMIT=$(printf '%s\n' "$refs" | awk '/\^\{\}$/ {print $1}')
+          [ -n "$PG_COMMIT" ] || PG_COMMIT=$(printf '%s\n' "$refs" | awk 'NR==1 {print $1}')
+          if ! printf '%s' "$PG_COMMIT" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::Could not resolve $PG_REF to a commit"
+            exit 1
+          fi
+          echo "PG ${{ matrix.pgver }}: $PG_REF -> $PG_COMMIT"
+
+          # The compiler and libc versions, and the names of the other
+          # build packages.
+          # shellcheck disable=SC2086
+          toolchain=$({
+            cc --version
+            dpkg-query -W -f='${Package} ${Version}\n' libc6-dev
+            printf '%s\n' $BUILD_DEPS | sort
+          } | sha256sum | cut -c1-16)
+
+          opts=$(printf '%s' "$PG_CONFIGURE_OPTS" | sha256sum | cut -c1-16)
+
+          KEY="regress-pg-e${PG_CACHE_EPOCH}-${ImageOS:-unknown}-${RUNNER_ARCH}"
+          KEY="$KEY-pg${{ matrix.pgver }}-${PG_COMMIT}-o${opts}-t${toolchain}"
+          echo "cache key: $KEY"
+
+          {
+            echo "PG_COMMIT=$PG_COMMIT"
+            echo "PG_BUILD_KEY=$KEY"
+          } >> "$GITHUB_ENV"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      # Exact key only: no restore-keys, so nothing built from other inputs
+      # can be restored.
+      - name: Restore cached PostgreSQL build
+        id: pg-cache
+        if: ${{ !inputs.rebuild-postgres }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.PG_PREFIX }}
+          key: ${{ steps.key.outputs.key }}
+
+      # Fetched by the commit that went into the key, so a ref moving in the
+      # meantime cannot put a different source under that key.
+      - name: Fetch PostgreSQL source
+        if: steps.pg-cache.outputs.cache-hit != 'true'
+        run: |
+          git init "$PG_SRCDIR"
+          git -C "$PG_SRCDIR" remote add origin "$PG_REMOTE"
+          git -C "$PG_SRCDIR" fetch --depth 1 origin "$PG_COMMIT"
+          git -C "$PG_SRCDIR" checkout --detach FETCH_HEAD
+
+      - name: Configure, build, install PostgreSQL
+        if: steps.pg-cache.outputs.cache-hit != 'true'
+        run: |
+          cd "$PG_SRCDIR"
+          read -ra CONFIGURE_OPTS <<< "$PG_CONFIGURE_OPTS"
+          CONFIGURE_OPTS=(--prefix="$PG_PREFIX" "${CONFIGURE_OPTS[@]}")
+          echo "configure ${CONFIGURE_OPTS[*]}"
+          ./configure "${CONFIGURE_OPTS[@]}"
+          make -j"$(nproc)" -s
+          make install -s
+          printf '%s\n' "$PG_BUILD_KEY" > "$PG_PREFIX/.lolor-ci-build-key"
+
+      # Saved before lolor compiles and before the tests run, so a failing
+      # test does not throw the PostgreSQL build away.
+      - name: Save PostgreSQL build to cache
+        if: steps.pg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.PG_PREFIX }}
+          key: ${{ steps.key.outputs.key }}
+
+      # Runs on both paths.  The stamp check guards against an installation
+      # that does not come from this key's build.
+      - name: Check PostgreSQL installation
+        run: |
+          if [ "$(cat "$PG_PREFIX/.lolor-ci-build-key" 2>/dev/null)" != "$PG_BUILD_KEY" ]; then
+            echo "::error::PostgreSQL installation does not match build key $PG_BUILD_KEY"
+            exit 1
+          fi
+          echo "$PG_PREFIX/bin" >> "$GITHUB_PATH"
+          "$PG_PREFIX/bin/pg_config" --version
+
+      - name: Build and install lolor
+        run: |
+          make USE_PGXS=1 -j"$(nproc)"
+          make USE_PGXS=1 install
+
+      # A PostgreSQL build without TAP support prints a notice and exits 0
+      # instead of running the tests, so make sure this one has it before
+      # trusting a green result.
+      - name: Check that the build can run TAP tests
+        run: |
+          pg_config --configure | grep -q -- '--enable-tap-tests' || {
+            echo "::error::PostgreSQL was built without --enable-tap-tests"
+            exit 1
+          }
+
+      # installcheck runs the regression suite and then the TAP tests.
+      # PROVE_FLAGS makes prove print each test name, so the log shows
+      # which test a failure belongs to.
+      - name: Run the regression and TAP tests
+        run: make USE_PGXS=1 installcheck PROVE_FLAGS=--verbose
+
+      - name: Upload test output
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: regress-output-pg${{ matrix.pgver }}
+          path: |
+            regression.diffs
+            regression.out
+            results/
+            tmp_check/log/
+          if-no-files-found: ignore
+          retention-days: 7
