@@ -3,6 +3,57 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "ALTER EXTENSION lolor UPDATE" to load this file. \quit
 
+/*
+ * Refuse while lolor.node is configured outside 1..15.
+ *
+ * Through 1.2.3 the setting accepted 16, although a generated OID has four
+ * bits for the node id.  A node configured that way worked, with node bits
+ * that read back as 0.  From 1.3.0 the bound is 15: the server rejects the
+ * configured 16 at startup with a line in the log, lolor.node falls back to
+ * 0, which means unset, and every call that creates a large object fails.
+ * Nothing else points the operator at the cause, so stop the update here and
+ * say what to change.
+ *
+ * The running value cannot tell a rejected 16 from a node id that was never
+ * set, and a new installation may legitimately set it after CREATE
+ * EXTENSION, so look at what is configured instead: the configuration files
+ * (postgresql.auto.conf included) and the per-database and per-role
+ * settings.
+ */
+DO $$
+DECLARE
+  sources text;
+BEGIN
+  SELECT pg_catalog.string_agg(DISTINCT src, ', ') INTO sources
+  FROM (
+    -- Only the last entry counts: a later line overrides an earlier one.
+    SELECT l.sourcefile AS src
+      FROM (SELECT f.sourcefile, f.setting
+              FROM pg_catalog.pg_file_settings f
+             WHERE pg_catalog.lower(f.name) = 'lolor.node'
+             ORDER BY f.seqno DESC
+             LIMIT 1) l
+     WHERE l.setting ~ '^[0-9]+$'
+       AND l.setting::numeric > 15
+    UNION ALL
+    SELECT 'a per-database or per-role setting (ALTER DATABASE or ALTER ROLE ... SET lolor.node)'
+      FROM pg_catalog.pg_db_role_setting s,
+           pg_catalog.unnest(s.setconfig) AS c
+     WHERE pg_catalog.lower(c) ~ '^lolor\.node=[0-9]+$'
+       AND pg_catalog.split_part(c, '=', 2)::numeric > 15
+  ) x;
+
+  IF sources IS NOT NULL THEN
+    RAISE EXCEPTION 'lolor.node is set to a value above 15 in %', sources
+      USING DETAIL = 'lolor 1.3.0 accepts node ids 1 through 15. The server '
+                     'rejects the configured value, lolor.node falls back to 0 '
+                     '(unset), and large objects cannot be created on this node.',
+            HINT = 'Set lolor.node to a value from 1 to 15 that no other node '
+                   'uses, reload the configuration, and run this command again.';
+  END IF;
+END;
+$$;
+
 -- Warn if there are active streaming replicas — they need lolor installed too
 DO $$
 BEGIN
