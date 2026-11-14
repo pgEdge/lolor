@@ -248,7 +248,7 @@ SELECT convert_from(loread(:fd, 1024), 'UTF8');
 (1 row)
 
 END;
--- 1.2.3 is the released version; 1.3.0 is reached from it
+-- 1.2.3 is the released version; 2.0.0 is reached from it
 ALTER EXTENSION lolor UPDATE TO '1.2.3';
 SELECT extversion FROM pg_extension WHERE extname = 'lolor';
  extversion 
@@ -256,11 +256,11 @@ SELECT extversion FROM pg_extension WHERE extname = 'lolor';
  1.2.3
 (1 row)
 
-ALTER EXTENSION lolor UPDATE TO '1.3.0';
+ALTER EXTENSION lolor UPDATE TO '2.0.0';
 SELECT extversion FROM pg_extension WHERE extname = 'lolor';
  extversion 
 ------------
- 1.3.0
+ 2.0.0
 (1 row)
 
 -- Verify migration functions are available after upgrade
@@ -2355,3 +2355,104 @@ NOTICE:  no lolor large objects to migrate
 
 DROP EXTENSION lolor;
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+--
+-- A new installation runs lolor--2.0.0.sql; an existing one reaches 2.0.0
+-- through the update scripts.  Both must leave the same catalog contents:
+-- the same member objects, function definitions and privileges, table
+-- layouts, event trigger and dump configuration.
+--
+CREATE FUNCTION lolor_catalog_state()
+RETURNS TABLE (kind text, name text, def text) AS $$
+  WITH ext AS (SELECT oid, extconfig, extcondition
+                 FROM pg_extension WHERE extname = 'lolor'),
+       member AS (SELECT d.classid, d.objid, d.objsubid
+                    FROM pg_depend d, ext
+                   WHERE d.refclassid = 'pg_extension'::regclass
+                     AND d.refobjid = ext.oid AND d.deptype = 'e')
+  SELECT 'member', pg_describe_object(classid, objid, objsubid), ''
+    FROM member
+  UNION ALL
+  SELECT 'function', p.oid::regprocedure::text,
+         pg_get_functiondef(p.oid) || ' acl=' || coalesce(p.proacl::text, 'default')
+    FROM pg_proc p JOIN member m
+      ON m.classid = 'pg_proc'::regclass AND m.objid = p.oid
+  UNION ALL
+  SELECT 'parked native function', p.oid::regprocedure::text, ''
+    FROM pg_proc p
+   WHERE p.pronamespace = 'pg_catalog'::regnamespace AND p.proname LIKE '%\_orig'
+  UNION ALL
+  SELECT 'table', c.oid::regclass::text,
+         format('%s %s acl=%s', c.relkind, c.relpersistence,
+                coalesce(c.relacl::text, 'default'))
+    FROM pg_class c
+   WHERE c.relnamespace = 'lolor'::regnamespace
+  UNION ALL
+  SELECT 'column', format('%s.%s', a.attrelid::regclass, a.attname),
+         format('%s %s %s', a.attnum, format_type(a.atttypid, a.atttypmod),
+                a.attnotnull)
+    FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+   WHERE c.relnamespace = 'lolor'::regnamespace AND c.relkind = 'r'
+     AND a.attnum > 0 AND NOT a.attisdropped
+  UNION ALL
+  SELECT 'index', i.indexrelid::regclass::text, pg_get_indexdef(i.indexrelid)
+    FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid
+   WHERE c.relnamespace = 'lolor'::regnamespace
+  UNION ALL
+  SELECT 'constraint', format('%s.%s', co.conrelid::regclass, co.conname),
+         pg_get_constraintdef(co.oid)
+    FROM pg_constraint co JOIN pg_class c ON c.oid = co.conrelid
+   WHERE c.relnamespace = 'lolor'::regnamespace
+  UNION ALL
+  SELECT 'event trigger', t.evtname,
+         format('%s %s %s %s', t.evtevent, t.evtenabled, t.evttags,
+                t.evtfoid::regprocedure)
+    FROM pg_event_trigger t JOIN member m
+      ON m.classid = 'pg_event_trigger'::regclass AND m.objid = t.oid
+  UNION ALL
+  SELECT 'dump configuration', ext.extconfig::regclass[]::text,
+         ext.extcondition::text
+    FROM ext
+$$ LANGUAGE sql;
+CREATE EXTENSION lolor VERSION '1.0';
+ALTER EXTENSION lolor UPDATE;
+SELECT extversion FROM pg_extension WHERE extname = 'lolor';
+ extversion 
+------------
+ 2.0.0
+(1 row)
+
+CREATE TEMP TABLE lolor_updated AS SELECT * FROM lolor_catalog_state();
+DROP EXTENSION lolor;
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+CREATE EXTENSION lolor;
+CREATE TEMP TABLE lolor_new AS SELECT * FROM lolor_catalog_state();
+DROP EXTENSION lolor;
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+-- Guard against a comparison of two empty sets
+SELECT kind, count(*) FROM lolor_new GROUP BY kind ORDER BY kind;
+          kind          | count 
+------------------------+-------
+ column                 |     8
+ constraint             |     3
+ dump configuration     |     1
+ event trigger          |     1
+ function               |    34
+ index                  |     3
+ member                 |    44
+ parked native function |    20
+ table                  |     6
+(9 rows)
+
+-- Expect no rows: anything listed exists on one path only, or differs
+SELECT 'update scripts only' AS found_in, kind, name
+  FROM (SELECT * FROM lolor_updated EXCEPT SELECT * FROM lolor_new) u
+UNION ALL
+SELECT 'install script only', kind, name
+  FROM (SELECT * FROM lolor_new EXCEPT SELECT * FROM lolor_updated) n
+ORDER BY 1, 2, 3;
+ found_in | kind | name 
+----------+------+------
+(0 rows)
+
+DROP TABLE lolor_updated, lolor_new;
+DROP FUNCTION lolor_catalog_state();

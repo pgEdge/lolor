@@ -9,18 +9,18 @@ export PG_VERSION="${PG_VERSION:-17}"
 export PG_MAJOR_VERSION="$(echo "$PG_VERSION" | cut -d. -f1)"
 
 export PG_LOLOR_REPO="https://github.com/pgEdge/lolor.git"
-export LOLOR_BRANCH="${COMPONENT_BRANCH:-v1.3.0}"
+export LOLOR_BRANCH="${COMPONENT_BRANCH:-v2.0.0}"
 
-# Upstream version, suffix-stripped (e.g. 1.3.0). Names the source tarball's
+# Upstream version, suffix-stripped (e.g. 2.0.0). Names the source tarball's
 # internal directory and the RPM Version.
-export LOLOR_VERSION="${COMPONENT_VERSION:-1.3.0}"
+export LOLOR_VERSION="${COMPONENT_VERSION:-2.0.0}"
 export LOLOR_BUILDNUM=${COMPONENT_BUILDNUM:-1}
 
 export REPO_TYPE="${REPO_TYPE:-daily}"
 
 # DEB only: move a pre-release pretag (COMPONENT_BUILDNUM='rc1_1') into the
 # upstream version with a leading '~' so pre-releases sort BELOW stable in
-# dpkg/reprepro: 1.3.0~rc1-1.noble < 1.3.0-1.noble.
+# dpkg/reprepro: 2.0.0~rc1-1.noble < 2.0.0-1.noble.
 #
 # The '~' form goes in a SEPARATE variable used only by the debian/changelog:
 # LOLOR_VERSION itself must stay clean because it names the source tarball

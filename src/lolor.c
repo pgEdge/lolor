@@ -834,12 +834,13 @@ lolor_replication_drop_check(void)
  *	Guard every path that removes lolor: DROP EXTENSION, DROP SCHEMA CASCADE,
  *	DROP OWNED BY and anything else that reaches the extension by dependency.
  *
- *	The event trigger migrates the large objects out and restores the native
- *	functions before the drop, but an event trigger can be disabled, and the
- *	drop usually runs in a different backend from the migration, so a flag
- *	set by the migration would not be visible to it.  Check the catalog state
- *	at the moment of deletion instead, from whichever process performs it.
- *	lolor.allow_unsafe_drop skips both checks.
+ *	The event trigger restores the native functions before the drop and
+ *	makes the same checks, but an event trigger can be disabled, and the
+ *	drop usually runs in a different backend from the migration that emptied
+ *	lolor storage, so a flag set by the migration would not be visible to
+ *	it.  Check the catalog state at the moment of deletion instead, from
+ *	whichever process performs it.  lolor.allow_unsafe_drop skips every
+ *	check.
  */
 static void
 lolor_object_access(ObjectAccessType access, Oid classId, Oid objectId,
@@ -870,10 +871,9 @@ lolor_object_access(ObjectAccessType access, Oid classId, Oid objectId,
  *	DROP EXTENSION is the obvious spelling, but the extension also goes away
  *	through DROP SCHEMA lolor CASCADE and DROP OWNED BY the extension or
  *	schema owner, which reach it by dependency cascade rather than by naming
- *	it.  Missing one
- *	is not cosmetic: the large objects would be destroyed along with the lolor
- *	tables and the renamed pg_catalog functions never restored, leaving a
- *	database with no working lo_open().
+ *	it.  Missing one is not cosmetic: the renamed pg_catalog functions would
+ *	never be restored, and the drop would end in the object access hook's
+ *	refusal instead of a working DROP.
  */
 static bool
 lolor_is_being_dropped(Node *parsetree)
@@ -891,8 +891,9 @@ lolor_is_being_dropped(Node *parsetree)
 		 *
 		 * Only CASCADE reaches the extension through the schema: a plain DROP
 		 * SCHEMA is RESTRICT and cannot remove a schema that still holds the
-		 * extension's tables.  Acting on it would run the whole migration and
-		 * take the storage locks before PostgreSQL rejected the command.
+		 * extension's tables.  Acting on it would demand sole access
+		 * and rename the native functions back before PostgreSQL rejected the
+		 * command.
 		 */
 		if (stmt->removeType != OBJECT_EXTENSION &&
 			(stmt->removeType != OBJECT_SCHEMA ||
@@ -1000,7 +1001,7 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 	/*
 	 * The drop runs the installed disable(), which may belong to another
 	 * version than this library: an older one still has the unqualified
-	 * pg_proc lookups 1.3.0 fixed.  Refuse until they agree.
+	 * pg_proc lookups 2.0.0 fixed.  Refuse until they agree.
 	 */
 	lolor_check_version("drop the lolor extension");
 
