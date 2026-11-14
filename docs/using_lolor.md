@@ -11,7 +11,7 @@ lolor_db=# SELECT lo_creat (-1);
 (1 row)
 
 -- Querying the lolor schema for related stats:
-lolor_db=# SELECT * FROM lolor.pg_largeobject_metadata where oid = 1100433:
+lolor_db=# SELECT * FROM lolor.pg_largeobject_metadata WHERE oid = 1100433;
    oid   | lomowner | lomacl 
 ---------+----------+--------
  1100433 |       10 | 
@@ -25,10 +25,10 @@ lolor_db=# SELECT lo_create (200000);
 (1 row)
 
 -- Get related stats
-lolor_db=# SELECT * FROM lolor.pg_largeobject_metadata where oid = 200001:
+lolor_db=# SELECT * FROM lolor.pg_largeobject_metadata WHERE oid = 200000;
   oid   | lomowner | lomacl 
 --------+----------+--------
- 200001 |       10 | 
+ 200000 |       10 | 
 (1 row)
 
 -- Import an operating system file as a large object:

@@ -338,8 +338,9 @@ check_orphaned_roles(MigrateRels *rels)
 						   (unsigned long) norphans,
 						   (long long) norphans),
 			 errdetail("Affected OID(s): %s.", buf.data),
-			 errhint("Nothing has been migrated. Remove the affected large objects "
-					 "with lo_unlink() as a superuser, then retry.")));
+			 errhint("Nothing has been migrated. Run lolor.check_orphans() to see "
+					 "the affected objects, repair them with "
+					 "lolor.fix_orphans(new_owner), then retry.")));
 }
 
 /*

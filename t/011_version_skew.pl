@@ -53,7 +53,7 @@ $other->query_safe("SELECT 1");
 isnt($result, 0, "the drop is refused while the versions disagree");
 like(
 	$stderr,
-	qr/cannot drop the lolor extension: the lolor library is version 1\.3\.0 but the installed extension is version 1\.2\.3/,
+	qr/cannot drop the lolor extension: the lolor library is version 2\.0\.0 but the installed extension is version 1\.2\.3/,
 	"and the refusal names both versions");
 is( $node->safe_psql(
 		'postgres',
@@ -66,8 +66,8 @@ is( $node->safe_psql(
 $node->safe_psql('postgres', "ALTER EXTENSION lolor UPDATE");
 is( $node->safe_psql(
 		'postgres', "SELECT extversion FROM pg_extension WHERE extname = 'lolor'"),
-	'1.3.0',
-	"ALTER EXTENSION lolor UPDATE brings the extension to 1.3.0");
+	'2.0.0',
+	"ALTER EXTENSION lolor UPDATE brings the extension to 2.0.0");
 is($node->safe_psql('postgres', "SELECT lolor.is_enabled()"),
 	't', "and lolor is still enabled");
 
@@ -80,7 +80,7 @@ like(
 	qr/cannot drop the lolor extension while other sessions are connected/,
 	"and the refusal says why");
 
-# A 1.3.0 SQL entry point asks the library too.  Pretend the library is
+# A 2.0.0 SQL entry point asks the library too.  Pretend the library is
 # ahead of the installed SQL by changing extversion, then put it back.
 $node->safe_psql('postgres',
 	"UPDATE pg_extension SET extversion = '1.2.9' WHERE extname = 'lolor'");
@@ -93,11 +93,11 @@ foreach my $call (
 	isnt($result, 0, "$call is refused while the versions disagree");
 	like(
 		$stderr,
-		qr/the lolor library is version 1\.3\.0 but the installed extension is version 1\.2\.9/,
+		qr/the lolor library is version 2\.0\.0 but the installed extension is version 1\.2\.9/,
 		"and $call says why");
 }
 $node->safe_psql('postgres',
-	"UPDATE pg_extension SET extversion = '1.3.0' WHERE extname = 'lolor'");
+	"UPDATE pg_extension SET extversion = '2.0.0' WHERE extname = 'lolor'");
 
 $other->quit;
 wait_for_other_sessions_to_exit();

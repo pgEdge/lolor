@@ -6,13 +6,13 @@ You can use `pg_upgrade` with the `lolor` extension installed provided that you 
 
 Both clusters must list `lolor` in `shared_preload_libraries`; without it the new cluster cannot load lolor's library, so restoring the extension fails.
 
-Before running `pg_upgrade`, you must disable `lolor`. After executing pg_upgrade, you can enable lolor.  Use `psql` or another client to disable lolor:
+Before running `pg_upgrade`, you must disable `lolor`. After executing `pg_upgrade`, you can enable lolor. From lolor 2.0.0 on, `lolor.disable()` and `lolor.enable()` refuse while any other client session is connected to the database, so disconnect other clients first. Use `psql` or another client to disable lolor:
 
 ```
 db1_17=# SELECT lolor.disable();
 ```
 
-Next, execute the upgrade. A sample `pg_ugrade` command appears below:
+Next, execute the upgrade. A sample `pg_upgrade` command appears below:
 
 ```
 # pg_upgrade --old-datadir=/data/db1_17 \
