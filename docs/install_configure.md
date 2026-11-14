@@ -42,10 +42,11 @@ SET search_path=lolor,"$user",public,pg_catalog
 
 lolor renames any existing methods in `pg_catalog.lo_*` to `pg_catalog.lo_*_orig`, and new versions of these methods are introduced.  If you remove the extension, the renamed `pg_catalog.lo_*_orig` functions are restored to their initial names.
 
-When you replicate large objects with Spock, the `pg_largeobject` and `pg_largeobject_metadata` tables must belong to your replication set. Connect to the lolor database and add them with `spock.repset_add_table`:
+When you replicate large objects with Spock, the tables `pg_largeobject`, `pg_largeobject_metadata` and `pg_largeobject_description` must belong to your replication set. The third table holds the comment of each object that was migrated from native storage; without it, a `lo_unlink()` leaves the comment behind on the other nodes, and a node that is added or resynchronized later does not receive the comments. Connect to the lolor database and add them with `spock.repset_add_table`:
 
 ```sql
 -- 'default' is Spock's built-in replication set; subscriptions consume it automatically.
 SELECT spock.repset_add_table('default', 'lolor.pg_largeobject');
 SELECT spock.repset_add_table('default', 'lolor.pg_largeobject_metadata');
+SELECT spock.repset_add_table('default', 'lolor.pg_largeobject_description');
 ```
