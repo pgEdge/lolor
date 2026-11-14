@@ -152,6 +152,7 @@ _EOF_
 psql -U admin -d demo -h /tmp -v ON_ERROR_STOP=1 <<_EOF_
 SELECT spock.repset_add_table('demo_replication_set', 'lolor.pg_largeobject');
 SELECT spock.repset_add_table('demo_replication_set', 'lolor.pg_largeobject_metadata');
+SELECT spock.repset_add_table('demo_replication_set', 'lolor.pg_largeobject_description');
 _EOF_
 
 pg_ctl -D "$PGDATA" -m fast -w stop
