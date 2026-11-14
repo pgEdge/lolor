@@ -30,7 +30,8 @@ $publisher->safe_psql('postgres',
 
 # Create publication for lolor tables
 $publisher->safe_psql('postgres',
-	"CREATE PUBLICATION lolor_pub FOR TABLE lolor.pg_largeobject, lolor.pg_largeobject_metadata");
+	"CREATE PUBLICATION lolor_pub FOR TABLE lolor.pg_largeobject,
+		lolor.pg_largeobject_metadata, lolor.pg_largeobject_description");
 
 # Setup subscriber with lolor extension (tables must exist before subscription)
 $subscriber->init;
@@ -191,6 +192,25 @@ my $sub_lo = $subscriber->safe_psql('postgres',
 	"SELECT count(*) FROM lolor.pg_largeobject");
 is($sub_lo, $pub_lo,
 	"catalog consistency: pg_largeobject row count matches across nodes");
+
+# A comment parked for an object in lolor storage is replicated with the
+# object, and lo_unlink() removes it on the subscriber too.  Migration is
+# what parks a comment; it wants sole access to the database, so put the row
+# in place by hand here.
+$publisher->safe_psql('postgres', qq(
+	SELECT lo_from_bytea(7, 'commented LO');
+	INSERT INTO lolor.pg_largeobject_description VALUES (7, 'a parked comment');
+));
+$publisher->wait_for_catchup('lolor_sub');
+$result = $subscriber->safe_psql('postgres',
+	"SELECT description FROM lolor.pg_largeobject_description WHERE loid = 7");
+is($result, 'a parked comment', "parked comment replicated to subscriber");
+
+$publisher->safe_psql('postgres', "SELECT lo_unlink(7)");
+$publisher->wait_for_catchup('lolor_sub');
+$result = $subscriber->safe_psql('postgres',
+	"SELECT count(*) FROM lolor.pg_largeobject_description WHERE loid = 7");
+is($result, '0', "lo_unlink removes the parked comment on the subscriber");
 
 # Dropping lolor while its tables are subscribed or published is refused: the
 # drop itself would succeed, and replication would break afterwards.
