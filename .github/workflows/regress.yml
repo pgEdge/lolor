@@ -91,6 +91,10 @@ jobs:
     steps:
       - name: Checkout lolor
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # The job runs the Makefile and tests from the pull request; do
+          # not leave the job token in .git/config for them to read.
+          persist-credentials: false
 
       - name: Install build dependencies
         run: |
