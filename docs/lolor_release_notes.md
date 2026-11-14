@@ -1,35 +1,323 @@
 # lolor Release Notes
 
-## lolor 1.3.0
+## lolor 2.0.0
 
-* Add bidirectional large object migration between native PostgreSQL and lolor storage, implemented as a direct relation-to-relation copy in C (`lolor.migrate_storage()`) rather than a loop through the large object API:
-  * `lolor.migrate_from_native(peer_oids oid[] DEFAULT NULL)` moves native large objects into lolor storage. It is a manual step after `CREATE EXTENSION lolor`, requires superuser, and returns the number of objects moved or -1 if the migration was refused.
-  * `lolor.migrate_to_native()` moves them back, whether or not lolor is enabled. It is a manual step before dropping the extension; the drop is refused while any object remains in lolor storage and no longer migrates anything itself.
-  * Both directions preserve OIDs, owners, ACLs, comments and the exact page layout, so sparse objects stay sparse. Ownership and ACLs are recorded in `pg_shdepend` on the way back, so `DROP ROLE`, `REASSIGN OWNED` and `DROP OWNED` see the objects again. Comments are parked in `lolor.pg_largeobject_description` while an object is in lolor storage. Native objects are removed with the same bookkeeping as `DROP` (dependencies, comments and labels), but without the per-object locks `DROP` takes, so a database with more large objects than the lock table can hold is migrated without raising `max_locks_per_transaction`.
-  * Storage layouts are verified against the running server at migration time. Security labels, which lolor storage cannot represent, cause `migrate_from_native()` to refuse. OID conflicts are reported with the conflicting OIDs.
-  * Migration holds `ShareRowExclusiveLock` on both stores until commit. Ordinary large object access takes `RowExclusiveLock`, which does not conflict with itself, so a concurrent `lo_write()` could otherwise be lost silently. Opposing migrations take their locks in a fixed order and cannot deadlock.
-  * Both migration functions refuse while any other session is connected to the database, and refuse to run from anything but a client session.
-  * With spock installed, both functions run under `spock.repair_mode()`. If a logical slot spock cannot suppress exists, a non-spock slot or any slot when spock is absent, they refuse rather than let subscribers decode the migration as row changes.
-  * Migration is node-local: native large objects are never replicated, so run the migration on each node by connecting to it directly. Do not send it through DDL replication, which would run it inside every subscriber's apply worker. Native OIDs are not node-encoded, so pass the other nodes' OIDs (from `lolor.native_lo_oids()`) as `peer_oids` to turn a cross-node collision into a refusal, and compare `lolor.digest()` across nodes afterwards.
-  * `migrate_to_native()` refuses with a clear error while any object refers to a dropped role, instead of failing part-way with "role N was concurrently dropped"; remove those objects with `lo_unlink()` and retry.
-* New helpers `lolor.digest()` and `lolor.native_lo_oids()` for cross-node checks after a node-local migration.
-* New helpers `lolor.check_orphans()` and `lolor.fix_orphans(new_owner)` for objects whose owner, grantee or grantor has been dropped. Objects in lolor storage cannot participate in `pg_shdepend`, so `DROP ROLE` does not notice them; `check_orphans()` lists them and which reference is dangling, and `fix_orphans()` reassigns dead owners, replacing them in the ACL as `REASSIGN OWNED` would so that grants they made survive, and drops entries that still name a missing role.
-* **Security fix: `lo_import()` and `lo_export()` were executable by any database user.** These read and write files on the server as the account PostgreSQL runs under, so core revokes `EXECUTE` on them from `PUBLIC`. lolor replaces them by renaming the originals to `*_orig`; an ACL belongs to a function rather than a name, so the restriction stayed on the parked original while each replacement got the default `EXECUTE TO PUBLIC`. Any user could read an arbitrary server file with `lo_import()` or overwrite one with `lo_export()`. The replacements are now locked down at install time, and upgrading revokes the privilege on existing installations in either state. Versions 1.0 through 1.2.2 are affected.
-* The extension is no longer marked `trusted`. Installing lolor renames functions in `pg_catalog` for the whole database, which a non-superuser should not be able to do.
-* **Fixed `DROP ROLE` failing with "unrecognized object class".** Creating a large object recorded a `pg_shdepend` row whose `classId` was the OID of `lolor.pg_largeobject`, an ordinary table rather than a catalog. Any role that had created a large object became undroppable, and the rows were never cleaned up because `inv_drop()` deleted with `PERFORM_DELETION_SKIP_ORIGINAL`. lolor no longer records these rows, and the upgrade removes the ones already present.
-  * The cleanup is per database, so `ALTER EXTENSION lolor UPDATE` must be run in every database that has lolor. Until it is, `DROP ROLE` anywhere in the cluster keeps reporting "owner of objects in database X".
-  * A database that ran `DROP EXTENSION lolor` on an earlier version still has the rows, now pointing at a table that no longer exists, and no upgrade script will run there. Clean it by hand as superuser in that database: find the stale class OIDs with `SELECT DISTINCT classid FROM pg_shdepend WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database()) AND classid NOT IN (SELECT oid FROM pg_class)`, then `DELETE FROM pg_shdepend WHERE dbid = <that dbid> AND classid IN (<those OIDs>)`.
-* **lolor must now be listed in `shared_preload_libraries`.** Loading it on demand is refused: `CREATE EXTENSION lolor`, `LOAD 'lolor'` and any call that reaches one of lolor's functions fail with `lolor must be loaded via "shared_preload_libraries"`; the native `pg_catalog.lo_*` functions are not affected while lolor is not installed or is disabled. The drop guard below is an object access hook, which is only present in every backend and worker when the library is preloaded, and a missing or broken library now fails at server start rather than at the first `lo_open()`. Upgrade in this order: install the new library files, add `lolor` to `shared_preload_libraries`, restart, then run `ALTER EXTENSION lolor UPDATE` in each database. Between the file install and the restart, any session that loads the new library on demand gets that error, so restart promptly.
-* Removing the extension is guarded by an object access hook. `DROP EXTENSION`, `DROP SCHEMA lolor CASCADE`, `DROP OWNED BY` and any other path that reaches the extension are refused while lolor is enabled or while any object remains in lolor storage, checked in the catalog at the moment of deletion from whichever backend performs it. **The drop no longer migrates the objects out itself**: run `lolor.migrate_to_native()` first. The event trigger only puts the native `pg_catalog.lo_*` names back. The new superuser setting `lolor.allow_unsafe_drop` skips both checks and discards the contents of lolor storage. Because the drop renames the native functions back, it has the same requirements as `lolor.disable()`: no other session connected to the database, and a client session.
-* Dropping lolor is refused while its tables are in a spock replication set, a publication on this node, including one created `FOR ALL TABLES` or `FOR TABLES IN SCHEMA lolor`, or a subscription on this node, or were synchronized to it through a spock subscription. The drop would succeed and replication would break afterwards: the other side keeps sending rows for a table this node no longer has, and a subscription removed by `DROP OWNED BY` leaves its slot behind. The error names the memberships; remove the tables from them first. The check is enforced when the tables are deleted, so it holds with event triggers disabled.
-* `lolor.enable()` and `lolor.disable()` refuse to run from anything but a client session, so replicated DDL cannot execute them inside an apply worker, where a refusal would leave that node's replication retrying forever.
-* `CREATE EXTENSION lolor` has the same requirements as `lolor.enable()`, since the install script renames the native functions the same way: no other session connected to the database, and a client session.
-* `lolor.enable()`, `lolor.disable()` and `lolor.is_enabled()` now probe exact function signatures in `pg_catalog`. They previously matched on `proname` across every schema, so any user with `CREATE` on any schema could define a function named `lolor_lo_open` and wedge lolor into a permanent "inconsistent state" that also blocked `DROP EXTENSION`. Both now emit a notice that client sessions must reconnect, since libpq caches the large object function OIDs per connection, and refuse while any other session is connected to the database, since a renamed function keeps its OID and other sessions cannot be made to see the switch.
-* The session check behind `lolor.enable()`, `lolor.disable()`, the migration functions and the drop is done in C and takes an exclusive lock on the database before counting, so a session connecting at the same moment either is counted or waits until the operation's transaction ends. Previously it was a snapshot of `pg_stat_activity` and could miss such a session. Single-user mode is no longer refused.
-* `lolor.enable()`, `lolor.disable()`, the migration functions, `lolor.check_orphans()`, `lolor.fix_orphans()` and dropping the extension refuse while the loaded library and the installed extension are different versions. A drop with new library files and an older installed extension would otherwise run that version's `disable()`, which still has the unqualified function lookups fixed in this release. Run `ALTER EXTENSION lolor UPDATE` first.
-* Fixed the `lolor.node` upper bound. The GUC accepted 0..16 while a generated OID reserves four bits for the node id, so node 16 did not fit: the node field of every OID it generated read back as 0. The bound is now derived from the encoding (`LOLOR_MAX_NODE_ID`), giving 0..15. **If you have `lolor.node = 16` configured**, the server still starts but logs `16 is outside the valid range for parameter "lolor.node" (0 .. 15)` and falls back to 0, which is the node id it was effectively using already. Set it to a value in 0..15, and check for OID collisions against whichever node is genuinely 0.
-* Expanded test coverage: TAP tests for dump/restore, streaming and logical replication, standby promotion, the drop paths, migration fidelity and locking, and cross-node OID collisions; regression tests for `lo_lseek`, `lo_tell`, `lo_truncate`, the 64-bit interface, sparse objects, comment round trips, `pg_shdepend` restoration, permission enforcement, the orphan helpers and name squatting. The regression suite runs on its own preloaded instance.
-* Security hardening: addressed Codacy/Flawfinder warnings.
+lolor 2.0.0 adds supported migration of large objects into and out of lolor
+storage, makes removal of the extension safe, and fixes two defects that
+affect security and role management. This release changes how the lolor
+library is loaded; read the upgrade steps before you install the new files.
+
+The release is numbered 2.0.0, and not 1.3.0, because an existing
+installation cannot take the new version without changes: the library must
+be preloaded, the extension is no longer trusted, and a drop of the
+extension no longer discards stored objects. There is no 1.3.0 release.
+
+### Highlights
+
+The following list summarizes the most important changes in this release:
+
+- Two new functions, `lolor.migrate_from_native()` and
+  `lolor.migrate_to_native()`, move large objects between native Postgres
+  storage and lolor storage in either direction without loss.
+- A drop of the extension no longer discards large objects. Earlier
+  versions dropped the lolor tables together with their contents; the drop
+  is now refused while lolor storage holds objects or while the lolor
+  tables are replicated.
+- lolor must now be listed in `shared_preload_libraries`. This change
+  requires a configuration change and a restart during the upgrade.
+- A security fix revokes `EXECUTE` on `lo_import()` and `lo_export()` from
+  `PUBLIC`. Versions 1.0 through 1.2.3 left both functions open to every
+  database user.
+- `DROP ROLE` no longer fails with "unrecognized object class" for a role
+  that created a large object.
+- The extension is no longer marked `trusted`; only a superuser can install
+  or update lolor.
+
+### Upgrading to 2.0.0
+
+The upgrade needs a restart and a superuser. Perform the following steps on
+every node, and connect to each node directly for the SQL step:
+
+1. Install the new lolor package or library files on the server and on each
+   of its physical standbys.
+2. Add `lolor` to `shared_preload_libraries` in `postgresql.conf` on the
+   server and on each standby.
+3. Restart the server and each standby.
+4. Update the extension as a superuser in every database that has lolor:
+
+    ```sql
+    ALTER EXTENSION lolor UPDATE;
+    ```
+5. Add the new comment table to the replication set that holds the other
+   lolor tables:
+
+    ```sql
+    SELECT spock.repset_add_table('default',
+                                  'lolor.pg_largeobject_description');
+    ```
+
+Between step 1 and step 3, a new session that uses a large object fails
+because the new library refuses to load on demand. A server that preloads
+the old library does not have that window; new sessions keep using the
+preloaded 1.2.3 library until the restart. To upgrade that way, perform
+step 2 and a restart first, while the 1.2.3 files are still installed, and
+then continue with steps 1, 3, 4 and 5. This order costs a second restart.
+
+Review the following changes in behavior before you upgrade:
+
+- lolor refuses to load on demand. `CREATE EXTENSION lolor`, `LOAD 'lolor'`
+  and any call that reaches a lolor function fail with
+  `lolor must be loaded via "shared_preload_libraries"` unless the library
+  is preloaded. Between step 1 and step 3, a new session that uses a large
+  object receives that error unless the old library is already preloaded.
+  The native
+  `pg_catalog.lo_*` functions are not affected while lolor is not installed
+  or is disabled.
+- A missing or broken library now fails at server start instead of at the
+  first `lo_open()` call.
+- The update script revokes `EXECUTE` on `lo_import()` and `lo_export()`
+  from `PUBLIC`. Grant the privilege to each role that needs server-side
+  file access.
+- The update script removes stale `pg_shdepend` rows for the current
+  database only. Until every database that has lolor is updated, `DROP
+  ROLE` keeps failing for a role that created large objects in a database
+  that is not yet updated.
+- Until step 4 is complete in a database, a drop of the extension is
+  refused in that database, and the new functions do not exist there yet.
+  From 2.0.0 on, `lolor.enable()`, `lolor.disable()`, the migration
+  functions, `lolor.check_orphans()`, `lolor.fix_orphans()` and the drop
+  require the loaded library and the installed extension to be the same
+  version.
+- `CREATE EXTENSION lolor`, `lolor.enable()`, `lolor.disable()`, the
+  migration functions and a drop of an enabled lolor require that no other
+  client session is connected to the database. They also refuse to run
+  from anything but a client session, so run them on each node directly
+  and do not send them through DDL replication.
+- Spock 5 automatic DDL replication sends `CREATE EXTENSION lolor`, `ALTER
+  EXTENSION lolor UPDATE` and `DROP EXTENSION lolor` to the other nodes,
+  where lolor refuses the create and the drop. Turn off
+  `spock.enable_ddl_replication` in the session that runs these
+  statements. Spock 6 keeps these statements on the node where they are
+  issued.
+- `lolor.node` no longer accepts 16; the valid node ids are 1 through 15,
+  and 0 means unset. A server configured with `lolor.node = 16` still
+  starts, but the setting is rejected and falls back to 0, and every call
+  that creates a large object then fails with
+  `value for lolor.node is not set`. `ALTER EXTENSION lolor UPDATE`
+  refuses to run while a configuration file or a per-database or per-role
+  setting names a value above 15, and reports where the value is set.
+  Change the setting on such a node to an unused value in the range 1
+  through 15.
+- `pg_upgrade` requires `lolor` in `shared_preload_libraries` on both the
+  old cluster and the new cluster.
+- The update script raises a notice when streaming replicas are attached,
+  as a reminder that each replica needs lolor installed.
+
+A database that ran `DROP EXTENSION lolor` on an earlier version keeps its
+stale `pg_shdepend` rows, and no update script runs there. As a superuser in
+that database, use the following query to find the stale class OIDs:
+
+```sql
+SELECT DISTINCT classid
+  FROM pg_shdepend
+ WHERE dbid = (SELECT oid FROM pg_database
+                WHERE datname = current_database())
+   AND classid NOT IN (SELECT oid FROM pg_class);
+```
+
+Then use the following command to remove the rows, substituting the
+database OID and the class OIDs that the query returned:
+
+```sql
+DELETE FROM pg_shdepend
+ WHERE dbid = <dbid> AND classid IN (<class OIDs>);
+```
+
+### Migrating Large Objects
+
+Migration is new in this release and is a manual, superuser-only step in
+both directions. The following changes describe the migration functions:
+
+- `lolor.migrate_from_native(peer_oids oid[] DEFAULT NULL)` moves native
+  large objects into lolor storage. Run the function after `CREATE
+  EXTENSION lolor`. The function returns the number of objects moved, or
+  -1 with a warning when logical replication slots block the migration.
+- `lolor.migrate_to_native()` moves the objects back to native storage,
+  whether or not lolor is enabled. Run the function before you drop the
+  extension. A blocked migration in this direction raises an error.
+- Both directions preserve OIDs, owners, ACLs, comments and the exact page
+  layout, so sparse objects stay sparse. The implementation is a direct
+  relation-to-relation copy in C (`lolor.migrate_storage()`) instead of a
+  loop through the large object API.
+- A move back to native storage records ownership and ACLs in
+  `pg_shdepend`, so `DROP ROLE`, `REASSIGN OWNED` and `DROP OWNED` see the
+  objects again.
+- The new table `lolor.pg_largeobject_description` holds the comment of
+  each object while the object is in lolor storage. `lo_unlink()` removes
+  the parked comment together with the object.
+- Add `lolor.pg_largeobject_description` to the replication set that
+  already holds the other two lolor tables, on every node, after the
+  update. Without the table in the set, a `lo_unlink()` leaves the comment
+  behind on the other nodes.
+- Native objects are removed with the same bookkeeping as `DROP`
+  (dependencies, comments and labels) but without the per-object locks. A
+  database with more large objects than the lock table can hold migrates
+  without a change to `max_locks_per_transaction`.
+- `migrate_from_native()` does not check whether lolor is enabled. On a
+  disabled lolor the objects still move into lolor storage and are not
+  reachable through the native functions until `lolor.enable()` runs.
+- Both functions verify the storage layouts against the running server
+  before any row is copied.
+- `migrate_from_native()` refuses when a large object carries a security
+  label, because lolor storage cannot represent labels.
+- Both functions refuse when an OID already exists in the destination
+  storage, and the error names the first ten conflicting OIDs.
+- `migrate_to_native()` refuses with a clear error while any object refers
+  to a dropped role, instead of failing part-way with "role N was
+  concurrently dropped". Repair those objects with `lolor.fix_orphans()`,
+  or remove them with `lo_unlink()`, and retry.
+- Both functions hold `ShareRowExclusiveLock` on both stores until commit,
+  so a concurrent `lo_write()` cannot be lost. Opposing migrations take
+  the locks in a fixed order and cannot deadlock.
+- Both functions refuse while any other client session is connected to
+  the database, and refuse to run from anything but a client session.
+
+Migration is local to one node. The following changes describe how
+migration interacts with replication:
+
+- With Spock installed, both functions run under `spock.repair_mode()`
+  when a logical replication slot exists in the database, so the row
+  movement is not replicated.
+- Both functions refuse while the database has a logical replication slot
+  that Spock cannot suppress; that is a slot of another output plugin, or
+  any logical slot when Spock is absent. Subscribers would otherwise
+  decode the migration as ordinary row changes.
+- Native large objects are never replicated, so run the migration on each
+  node that holds native large objects, and connect to that node directly.
+  The functions refuse to run inside an apply worker.
+- An object that is migrated on one node is not copied to the other nodes.
+  In a cluster that already has several nodes, the lolor tables must be
+  brought into agreement after the migration; the documentation describes
+  the procedure for each starting point.
+- Native OIDs are not node-encoded. Pass the OIDs of the other nodes (from
+  the new function `lolor.native_lo_oids()`) as `peer_oids` to turn a
+  cross-node collision into a refusal.
+- The new function `lolor.digest()` returns a per-object checksum of lolor
+  storage. Compare the output across nodes after a migration.
+
+### Dropping the Extension
+
+A drop of the extension is now guarded by an object access hook in addition
+to the event trigger. The following changes apply to `DROP EXTENSION`,
+`DROP SCHEMA lolor CASCADE`, `DROP OWNED BY` and any other path that reaches
+the extension:
+
+- The drop is refused while any object remains in lolor storage; run
+  `lolor.migrate_to_native()` first. Earlier versions dropped the lolor
+  tables and silently discarded every object in them.
+- The event trigger restores the native `pg_catalog.lo_*` function names
+  and does not move data. The trigger now also fires for `DROP SCHEMA` and
+  `DROP OWNED`.
+- The hook refuses the drop if lolor is still enabled when the extension is
+  deleted, for example because event triggers are turned off. The check
+  reads the catalog at the moment of deletion in the backend that performs
+  the drop.
+- The drop of an enabled lolor renames the native functions back, and
+  therefore has the same requirements as `lolor.disable()`: no other
+  client session connected to the database, and a client session.
+- The drop is refused while the lolor tables are in a Spock replication
+  set, a publication (including one created `FOR ALL TABLES` or `FOR
+  TABLES IN SCHEMA lolor`) or a subscription on the node, or were
+  synchronized to the node through a Spock subscription. The error names
+  the memberships; remove the tables from them first. The hook enforces
+  this check when the tables are deleted, so the check holds with event
+  triggers disabled.
+- The new superuser setting `lolor.allow_unsafe_drop` skips every check and
+  discards the contents of lolor storage. With the setting on, the drop
+  does not restore the native function names; run `lolor.disable()` first.
+
+### Security
+
+This release contains the following security changes:
+
+- `lo_import()` and `lo_export()` were executable by any database user in
+  versions 1.0 through 1.2.3. These functions read and write files on the
+  server as the account that runs Postgres, so core Postgres revokes
+  `EXECUTE` on them from `PUBLIC`. lolor replaces the functions by renaming
+  the originals to `*_orig`; the restriction stayed on the renamed
+  original, and each replacement received the default `EXECUTE TO PUBLIC`.
+  Any user could read an arbitrary server file with `lo_import()` or
+  overwrite one with `lo_export()`. A new installation now restricts the
+  replacements, and the update revokes the privilege on an existing
+  installation whether lolor is enabled or disabled.
+- The extension is no longer marked `trusted`. An installation of lolor
+  renames functions in `pg_catalog` for the whole database, which a
+  non-superuser should not be able to do.
+- `lolor.enable()`, `lolor.disable()` and `lolor.is_enabled()` now probe
+  exact function signatures in `pg_catalog`. The functions previously
+  matched on `proname` across every schema, so any user with `CREATE` on
+  any schema could define a function named `lolor_lo_open` and leave lolor
+  in a permanent "inconsistent state" that also blocked `DROP EXTENSION`.
+- Source changes address Codacy and Flawfinder warnings, and updates to
+  test dependencies address Dependabot alerts.
+
+### Bug Fixes
+
+This release fixes the following defects:
+
+- `DROP ROLE` failed with "unrecognized object class" for any role that had
+  created a large object. lolor recorded a `pg_shdepend` row whose
+  `classId` was the OID of `lolor.pg_largeobject`, an ordinary table and
+  not a catalog, and never removed the row. lolor no longer records these
+  rows or invokes object access hooks for objects in lolor storage, and
+  the update removes the rows that are already present.
+- lolor closed large object descriptors after the commit record was
+  written, where any error becomes a PANIC. The cleanup now runs on the
+  pre-commit and pre-prepare events, as core Postgres does.
+- The `lolor.node` setting accepted 16, which does not fit in the four bits
+  that a generated OID reserves for the node id; the node field of every
+  OID generated on such a node read back as 0. The upper bound is now
+  derived from the encoding and is 15.
+
+### Other Changes
+
+This release also contains the following changes:
+
+- New functions `lolor.check_orphans()` and `lolor.fix_orphans(new_owner
+  regrole)` find and repair objects whose owner, grantee or grantor has been
+  dropped. Objects in lolor storage cannot participate in `pg_shdepend`, so
+  `DROP ROLE` does not notice them. `check_orphans()` lists each object and the
+  dangling reference. `fix_orphans()` reassigns objects of dropped owners,
+  replaces the old owner in the ACL as `REASSIGN OWNED` does so that grants
+  made by the old owner survive, and drops entries that still name a missing
+  role. `fix_orphans()` requires superuser and returns the number of objects
+  changed.
+- `lolor.enable()` and `lolor.disable()` refuse while any other client
+  session is connected to the database, since a renamed function keeps its
+  OID and other sessions cannot be made to see the switch. The check takes
+  an exclusive lock on the database before counting, so a new connection
+  waits until the transaction ends. Both functions emit a
+  notice that client sessions must reconnect, because libpq caches the
+  large object function OIDs for each connection.
+- `lolor.enable()` and `lolor.disable()` refuse to run from anything but a
+  client session, so replicated DDL cannot execute them inside an apply
+  worker.
+- `CREATE EXTENSION lolor` has the same requirements as `lolor.enable()`,
+  since the install script renames the native functions the same way.
+- Single-user mode is exempt from the session check.
+- Test coverage is expanded. New TAP tests cover dump and restore,
+  streaming and logical replication, standby promotion, file privileges,
+  the drop paths, migration fidelity and locking, cross-node OID
+  collisions and version skew. New regression tests cover `lo_lseek`,
+  `lo_tell`, `lo_truncate`, the 64-bit interface, sparse objects, comment
+  round trips, `pg_shdepend` restoration, permission enforcement, the
+  orphan helpers and name squatting. The regression suite runs on a
+  temporary instance that preloads lolor.
+- A new installation runs one install script, `lolor--2.0.0.sql`, and no
+  longer replays every update since 1.0. The update scripts from 1.0
+  through 1.2.3 remain for existing installations, and the regression
+  suite checks that both ways produce the same catalog contents.
+- A new build workflow compiles lolor with warnings treated as errors.
 
 ## lolor 1.2.3
 
