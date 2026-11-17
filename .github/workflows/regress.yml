@@ -33,7 +33,10 @@
 #
 # In the usual run PostgreSQL is restored in a few seconds and only lolor
 # is compiled.  A manual run can bypass the cache with the rebuild-postgres
-# input.
+# input.  That build is used by that run only: a cache key that exists
+# cannot be overwritten, and a build saved from another branch is not
+# visible to main or to pull requests.  To replace a bad cached build, bump
+# PG_CACHE_EPOCH.
 #
 
 name: Regression and TAP tests
@@ -43,7 +46,9 @@ on:
   workflow_dispatch:
     inputs:
       rebuild-postgres:
-        description: Ignore cached PostgreSQL builds and compile them again
+        description: >-
+          Compile PostgreSQL for this run only, ignoring the cache.  The
+          cached builds stay; bump PG_CACHE_EPOCH to replace them.
         type: boolean
         default: false
   pull_request:
@@ -237,11 +242,20 @@ jobs:
             exit 1
           }
 
-      # installcheck runs the regression suite and then the TAP tests.
-      # PROVE_FLAGS makes prove print each test name, so the log shows
-      # which test a failure belongs to.
-      - name: Run the regression and TAP tests
-        run: make USE_PGXS=1 installcheck PROVE_FLAGS=--verbose
+      # installcheck runs both suites from one rule and stops at the first
+      # failure, so a failing regression suite would hide the TAP results.
+      # Run them as two steps: an empty TAP_TESTS or REGRESS leaves that
+      # suite out.
+      - name: Run the regression suite
+        id: regress
+        run: make USE_PGXS=1 installcheck TAP_TESTS=
+
+      # Runs after a regression failure too, but not when an earlier step
+      # failed and there is nothing to test.  PROVE_FLAGS makes prove print
+      # each test name, so the log shows which test a failure belongs to.
+      - name: Run the TAP tests
+        if: ${{ !cancelled() && (steps.regress.outcome == 'success' || steps.regress.outcome == 'failure') }}
+        run: make USE_PGXS=1 installcheck REGRESS= PROVE_FLAGS=--verbose
 
       - name: Upload test output
         if: failure()
