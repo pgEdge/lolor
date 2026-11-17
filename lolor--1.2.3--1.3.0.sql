@@ -4,7 +4,7 @@
 \echo Use "ALTER EXTENSION lolor UPDATE" to load this file. \quit
 
 /*
- * Refuse while lolor.node is configured outside 1..15.
+ * Refuse while lolor.node is configured with a value the server rejects.
  *
  * Through 1.2.3 the setting accepted 16, although a generated OID has four
  * bits for the node id.  A node configured that way worked, with node bits
@@ -16,40 +16,74 @@
  *
  * The running value cannot tell a rejected 16 from a node id that was never
  * set, and a new installation may legitimately set it after CREATE
- * EXTENSION, so look at what is configured instead: the configuration files
- * (postgresql.auto.conf included) and the per-database and per-role
- * settings.
+ * EXTENSION, so look at what is configured instead.
+ *
+ * Configuration files (postgresql.auto.conf included): pg_file_settings
+ * already says whether the server accepts each entry, whatever way the
+ * value is written (16, 0x10, 020).  Only the last entry counts, because a
+ * later line overrides an earlier one.
+ *
+ * Per-database and per-role settings: the server does not report on those,
+ * so read the stored value the way the server does (decimal, 0x hex, or
+ * octal with a leading 0).  Only settings that can apply to a session in
+ * this database are looked at; one on another database is that database's
+ * concern, and its own update reports it.
  */
 DO $$
 DECLARE
   sources text;
 BEGIN
-  SELECT pg_catalog.string_agg(DISTINCT src, ', ') INTO sources
+  SELECT pg_catalog.string_agg(src, '; ' ORDER BY src) INTO sources
   FROM (
-    -- Only the last entry counts: a later line overrides an earlier one.
-    SELECT l.sourcefile AS src
-      FROM (SELECT f.sourcefile, f.setting
+    SELECT pg_catalog.format('%s (lolor.node = %s)', l.sourcefile, l.setting)
+             AS src
+      FROM (SELECT f.sourcefile, f.setting, f.error
               FROM pg_catalog.pg_file_settings f
              WHERE pg_catalog.lower(f.name) = 'lolor.node'
              ORDER BY f.seqno DESC
              LIMIT 1) l
-     WHERE l.setting ~ '^[0-9]+$'
-       AND l.setting::numeric > 15
+     WHERE l.error IS NOT NULL
     UNION ALL
-    SELECT 'a per-database or per-role setting (ALTER DATABASE or ALTER ROLE ... SET lolor.node)'
-      FROM pg_catalog.pg_db_role_setting s,
-           pg_catalog.unnest(s.setconfig) AS c
-     WHERE pg_catalog.lower(c) ~ '^lolor\.node=[0-9]+$'
-       AND pg_catalog.split_part(c, '=', 2)::numeric > 15
+    SELECT CASE
+             WHEN v.setdatabase = 0 AND v.setrole = 0 THEN
+               pg_catalog.format('ALTER ROLE ALL SET lolor.node = %s', v.val)
+             WHEN v.setrole = 0 THEN
+               pg_catalog.format('ALTER DATABASE %I SET lolor.node = %s',
+                                 v.datname, v.val)
+             WHEN v.setdatabase = 0 THEN
+               pg_catalog.format('ALTER ROLE %I SET lolor.node = %s',
+                                 v.rolname, v.val)
+             ELSE
+               pg_catalog.format('ALTER ROLE %I IN DATABASE %I SET lolor.node = %s',
+                                 v.rolname, v.datname, v.val)
+           END
+      FROM (SELECT s.setdatabase, s.setrole, d.datname, r.rolname,
+                   pg_catalog.substr(c, 12) AS val
+              FROM pg_catalog.pg_db_role_setting s
+                   LEFT JOIN pg_catalog.pg_database d ON d.oid = s.setdatabase
+                   LEFT JOIN pg_catalog.pg_roles r ON r.oid = s.setrole,
+                   pg_catalog.unnest(s.setconfig) AS c
+             WHERE pg_catalog.lower(pg_catalog.substr(c, 1, 11)) = 'lolor.node='
+               AND (s.setdatabase = 0
+                    OR d.datname = pg_catalog.current_database())) v
+     WHERE CASE
+             WHEN v.val ~* '^0x[0-9a-f]+$' THEN v.val::numeric
+             WHEN v.val ~ '^0[0-7]+$' THEN
+               ('0o' || pg_catalog.substr(v.val, 2))::numeric
+             WHEN v.val ~ '^[0-9]+$' THEN v.val::numeric
+           END > 15
   ) x;
 
   IF sources IS NOT NULL THEN
-    RAISE EXCEPTION 'lolor.node is set to a value above 15 in %', sources
+    RAISE EXCEPTION 'lolor.node is configured with a value the server rejects: %',
+                    sources
       USING DETAIL = 'lolor 1.3.0 accepts node ids 1 through 15. The server '
-                     'rejects the configured value, lolor.node falls back to 0 '
+                     'ignores any other value, lolor.node falls back to 0 '
                      '(unset), and large objects cannot be created on this node.',
             HINT = 'Set lolor.node to a value from 1 to 15 that no other node '
-                   'uses, reload the configuration, and run this command again.';
+                   'uses, then run this command again. A change in a '
+                   'configuration file needs a reload first. A database or '
+                   'role setting is changed with ALTER DATABASE or ALTER ROLE.';
   END IF;
 END;
 $$;
