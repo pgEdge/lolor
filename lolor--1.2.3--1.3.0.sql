@@ -18,17 +18,19 @@
  * set, and a new installation may legitimately set it after CREATE
  * EXTENSION, so look at what is configured instead.
  *
- * Configuration files (postgresql.auto.conf included): pg_file_settings
- * already says whether the server accepts each entry, whatever way the
- * value is written (16, 0x10, 020).  Only the last entry counts, because a
- * later line overrides an earlier one.
+ * Offer each configured value to the server with set_config() and see
+ * whether it is taken.  That way the server's own parsing decides, whatever
+ * way the value is written (16, 0x10, 020, +16, 16.0).
  *
- * Per-database and per-role settings: no view reports on those, so offer
- * each stored value to the server with set_config() and see whether it is
- * taken.  That way the server's own parsing decides, as it does for the
- * files, and forms such as +16 or 16.0 are caught too.  Only settings that
- * can apply to a session in this database are looked at; one on another
- * database is that database's concern, and its own update reports it.
+ * Configuration files (postgresql.auto.conf included): only the last entry
+ * counts, because a later line overrides an earlier one.  The error column
+ * of pg_file_settings is not enough here: when the file has an unrelated
+ * mistake, such as an unknown parameter, the server stops before it
+ * validates any value and the column stays empty.
+ *
+ * Per-database and per-role settings: only settings that can apply to a
+ * session in this database are looked at; one on another database is that
+ * database's concern, and its own update reports it.
  */
 DO $$
 DECLARE
@@ -36,18 +38,16 @@ DECLARE
   running text := pg_catalog.current_setting('lolor.node');
   s       record;
 BEGIN
-  SELECT pg_catalog.array_agg(pg_catalog.format('%s (lolor.node = %s)',
-                                                l.sourcefile, l.setting))
-    INTO sources
-    FROM (SELECT f.sourcefile, f.setting, f.error
-            FROM pg_catalog.pg_file_settings f
-           WHERE pg_catalog.lower(f.name) = 'lolor.node'
-           ORDER BY f.seqno DESC
-           LIMIT 1) l
-   WHERE l.error IS NOT NULL;
-  sources := COALESCE(sources, '{}');
-
   FOR s IN
+    SELECT pg_catalog.format('%s (lolor.node = %s)', l.sourcefile, l.setting)
+             AS src,
+           l.setting AS val
+      FROM (SELECT f.sourcefile, f.setting
+              FROM pg_catalog.pg_file_settings f
+             WHERE pg_catalog.lower(f.name) = 'lolor.node'
+             ORDER BY f.seqno DESC
+             LIMIT 1) l
+    UNION ALL
     SELECT CASE
              WHEN rs.setdatabase = 0 AND rs.setrole = 0 THEN
                pg_catalog.format('ALTER ROLE ALL SET lolor.node = %s', v.val)

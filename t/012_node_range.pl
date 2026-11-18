@@ -59,6 +59,22 @@ foreach my $value ('0x10', '020')
 		"and the refusal shows the value as written");
 }
 
+# An unknown parameter elsewhere in the file makes the server stop before it
+# validates any value, so pg_file_settings reports no error for lolor.node.
+# The update is refused all the same.
+$node->append_conf('postgresql.conf', "max_connectionz = 100\n");
+is( $node->safe_psql(
+		'postgres', q{
+SELECT error IS NULL FROM pg_file_settings
+ WHERE name = 'lolor.node' ORDER BY seqno DESC LIMIT 1}),
+	't',
+	"pg_file_settings does not flag lolor.node next to an unknown parameter");
+($result, $stdout, $stderr) =
+  $node->psql('postgres', "ALTER EXTENSION lolor UPDATE");
+isnt($result, 0, "the update is still refused");
+like($stderr, qr/\(lolor\.node = 020\)/, "and names the value");
+$node->adjust_conf('postgresql.conf', 'max_connectionz', undef);
+
 # A later line in the file overrides the earlier one, for the server and
 # for the check alike.
 $node->append_conf('postgresql.conf', "lolor.node = 5\n");
