@@ -85,6 +85,13 @@ my %settings = (
 	q{SELECT 0, oid, '{lolor.node=0x10}'::text[] FROM pg_roles
 	   WHERE rolname = 'node_range_role'} =>
 	  qr/ALTER ROLE node_range_role SET lolor\.node = 0x10/,
+	# Forms the server reads as 16 although they are not plain digits.
+	q{SELECT oid, 0, '{lolor.node=+16}'::text[] FROM pg_database
+	   WHERE datname = 'postgres'} =>
+	  qr/ALTER DATABASE postgres SET lolor\.node = \+16/,
+	q{SELECT 0, oid, '{lolor.node=16.0}'::text[] FROM pg_roles
+	   WHERE rolname = 'node_range_role'} =>
+	  qr/ALTER ROLE node_range_role SET lolor\.node = 16\.0/,
 	q{SELECT d.oid, r.oid, '{work_mem=64MB,lolor.node=020}'::text[]
 	    FROM pg_database d, pg_roles r
 	   WHERE d.datname = 'postgres' AND r.rolname = 'node_range_role'} =>
@@ -104,8 +111,20 @@ foreach my $rows (sort keys %settings)
 }
 
 # In-range values written in hex or octal are fine.
-$node->safe_psql('postgres', "ALTER ROLE node_range_role SET lolor.node = '0xF'");
+$node->safe_psql('postgres', "ALTER ROLE node_range_role SET lolor.node = '0x7'");
 $node->safe_psql('postgres', "ALTER DATABASE postgres SET lolor.node = '017'");
+
+# Trying the stored values does not change the node id for the rest of the
+# transaction the update runs in.
+is( $node->safe_psql(
+		'postgres', q{
+BEGIN;
+SET LOCAL client_min_messages = warning;
+ALTER EXTENSION lolor UPDATE;
+SHOW lolor.node;
+ROLLBACK;}),
+	'15',
+	"the check leaves lolor.node as it was");
 
 $node->safe_psql('postgres', "ALTER EXTENSION lolor UPDATE");
 is( $node->safe_psql(

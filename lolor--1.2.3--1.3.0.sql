@@ -23,60 +23,68 @@
  * value is written (16, 0x10, 020).  Only the last entry counts, because a
  * later line overrides an earlier one.
  *
- * Per-database and per-role settings: the server does not report on those,
- * so read the stored value the way the server does (decimal, 0x hex, or
- * octal with a leading 0).  Only settings that can apply to a session in
- * this database are looked at; one on another database is that database's
- * concern, and its own update reports it.
+ * Per-database and per-role settings: no view reports on those, so offer
+ * each stored value to the server with set_config() and see whether it is
+ * taken.  That way the server's own parsing decides, as it does for the
+ * files, and forms such as +16 or 16.0 are caught too.  Only settings that
+ * can apply to a session in this database are looked at; one on another
+ * database is that database's concern, and its own update reports it.
  */
 DO $$
 DECLARE
-  sources text;
+  sources text[] := '{}';
+  running text := pg_catalog.current_setting('lolor.node');
+  s       record;
 BEGIN
-  SELECT pg_catalog.string_agg(src, '; ' ORDER BY src) INTO sources
-  FROM (
-    SELECT pg_catalog.format('%s (lolor.node = %s)', l.sourcefile, l.setting)
-             AS src
-      FROM (SELECT f.sourcefile, f.setting, f.error
-              FROM pg_catalog.pg_file_settings f
-             WHERE pg_catalog.lower(f.name) = 'lolor.node'
-             ORDER BY f.seqno DESC
-             LIMIT 1) l
-     WHERE l.error IS NOT NULL
-    UNION ALL
+  SELECT pg_catalog.array_agg(pg_catalog.format('%s (lolor.node = %s)',
+                                                l.sourcefile, l.setting))
+    INTO sources
+    FROM (SELECT f.sourcefile, f.setting, f.error
+            FROM pg_catalog.pg_file_settings f
+           WHERE pg_catalog.lower(f.name) = 'lolor.node'
+           ORDER BY f.seqno DESC
+           LIMIT 1) l
+   WHERE l.error IS NOT NULL;
+  sources := COALESCE(sources, '{}');
+
+  FOR s IN
     SELECT CASE
-             WHEN v.setdatabase = 0 AND v.setrole = 0 THEN
+             WHEN rs.setdatabase = 0 AND rs.setrole = 0 THEN
                pg_catalog.format('ALTER ROLE ALL SET lolor.node = %s', v.val)
-             WHEN v.setrole = 0 THEN
+             WHEN rs.setrole = 0 THEN
                pg_catalog.format('ALTER DATABASE %I SET lolor.node = %s',
-                                 v.datname, v.val)
-             WHEN v.setdatabase = 0 THEN
+                                 d.datname, v.val)
+             WHEN rs.setdatabase = 0 THEN
                pg_catalog.format('ALTER ROLE %I SET lolor.node = %s',
-                                 v.rolname, v.val)
+                                 r.rolname, v.val)
              ELSE
                pg_catalog.format('ALTER ROLE %I IN DATABASE %I SET lolor.node = %s',
-                                 v.rolname, v.datname, v.val)
-           END
-      FROM (SELECT s.setdatabase, s.setrole, d.datname, r.rolname,
-                   pg_catalog.substr(c, 12) AS val
-              FROM pg_catalog.pg_db_role_setting s
-                   LEFT JOIN pg_catalog.pg_database d ON d.oid = s.setdatabase
-                   LEFT JOIN pg_catalog.pg_roles r ON r.oid = s.setrole,
-                   pg_catalog.unnest(s.setconfig) AS c
-             WHERE pg_catalog.lower(pg_catalog.substr(c, 1, 11)) = 'lolor.node='
-               AND (s.setdatabase = 0
-                    OR d.datname = pg_catalog.current_database())) v
-     WHERE CASE
-             WHEN v.val ~* '^0x[0-9a-f]+$' THEN v.val::numeric
-             WHEN v.val ~ '^0[0-7]+$' THEN
-               ('0o' || pg_catalog.substr(v.val, 2))::numeric
-             WHEN v.val ~ '^[0-9]+$' THEN v.val::numeric
-           END > 15
-  ) x;
+                                 r.rolname, d.datname, v.val)
+           END AS src,
+           v.val
+      FROM pg_catalog.pg_db_role_setting rs
+           LEFT JOIN pg_catalog.pg_database d ON d.oid = rs.setdatabase
+           LEFT JOIN pg_catalog.pg_roles r ON r.oid = rs.setrole,
+           pg_catalog.unnest(rs.setconfig) AS c,
+           LATERAL (SELECT pg_catalog.substr(c, 12) AS val) v
+     WHERE pg_catalog.lower(pg_catalog.substr(c, 1, 11)) = 'lolor.node='
+       AND (rs.setdatabase = 0
+            OR d.datname = pg_catalog.current_database())
+     ORDER BY 1
+  LOOP
+    BEGIN
+      PERFORM pg_catalog.set_config('lolor.node', s.val, true);
+    EXCEPTION WHEN invalid_parameter_value THEN
+      sources := sources || s.src;
+    END;
+  END LOOP;
 
-  IF sources IS NOT NULL THEN
+  -- An accepted value was applied to this transaction; put the old one back.
+  PERFORM pg_catalog.set_config('lolor.node', running, true);
+
+  IF pg_catalog.cardinality(sources) > 0 THEN
     RAISE EXCEPTION 'lolor.node is configured with a value the server rejects: %',
-                    sources
+                    pg_catalog.array_to_string(sources, '; ')
       USING DETAIL = 'lolor 1.3.0 accepts node ids 1 through 15. The server '
                      'ignores any other value, lolor.node falls back to 0 '
                      '(unset), and large objects cannot be created on this node.',
