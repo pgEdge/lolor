@@ -1,4 +1,4 @@
-/* lolor--1.2.3--1.3.0.sql */
+/* lolor--1.2.3--2.0.0.sql */
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "ALTER EXTENSION lolor UPDATE" to load this file. \quit
@@ -22,7 +22,7 @@ $$;
  * replaces them by renaming the originals to *_orig and creating its own.  An
  * ACL belongs to a function rather than to a name, so the restriction stayed
  * on the parked original while each replacement was created with the default
- * of EXECUTE TO PUBLIC.  Every version through 1.2.2 is affected.
+ * of EXECUTE TO PUBLIC.  Every version through 1.2.3 is affected.
  *
  * Revoke on both spellings, since the installation may be enabled or
  * disabled.  Revoking on an already restricted function is a no-op.
@@ -165,7 +165,7 @@ REVOKE ALL ON FUNCTION lolor.fix_orphans(regrole) FROM PUBLIC;
 /*
  * Remove the bogus pg_shdepend rows left by earlier versions.
  *
- * Through 1.2.2, creating a large object recorded a pg_shdepend row whose
+ * Through 1.2.3, creating a large object recorded a pg_shdepend row whose
  * classId was the OID of lolor.pg_largeobject -- an ordinary table, not a
  * catalog the dependency machinery can describe.  DROP ROLE on any role that
  * had created one failed with "unrecognized object class", and the rows were
