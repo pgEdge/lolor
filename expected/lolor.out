@@ -834,9 +834,8 @@ SELECT count(*) AS extension_gone FROM pg_extension WHERE extname = 'lolor';
 (1 row)
 
 ROLLBACK;
--- With the trigger back on, the escape hatch also skips the function restore
--- and says so
-ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+-- Enabled, the escape hatch cannot rename the native functions back without
+-- the trigger, and says so
 SELECT lolor.enable();
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
  enable 
@@ -852,6 +851,58 @@ SELECT to_regprocedure('pg_catalog.lo_open_orig(oid,int4)') IS NOT NULL AS orig_
  orig_left_parked 
 ------------------
  t
+(1 row)
+
+ROLLBACK;
+-- With the trigger back on it does, so the native functions work after the
+-- drop and lolor can be installed again
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+BEGIN;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+SELECT count(*) AS left_parked FROM pg_proc
+ WHERE pronamespace = 'pg_catalog'::regnamespace
+   AND (proname LIKE '%\_orig' OR proname LIKE 'lolor\_%');
+ left_parked 
+-------------
+           0
+(1 row)
+
+SELECT lo_unlink(lo_from_bytea(0, 'native again')) AS native_works;
+ native_works 
+--------------
+            1
+(1 row)
+
+CREATE EXTENSION lolor;
+SELECT lolor.is_enabled() AS reinstalled_enabled;
+ reinstalled_enabled 
+---------------------
+ t
+(1 row)
+
+ROLLBACK;
+-- A rename that fails does not stop the drop: none of them is kept, and both
+-- the reason and the state are reported
+BEGIN;
+SET LOCAL allow_system_table_mods = on;
+CREATE FUNCTION pg_catalog.lolor_lo_open(oid, int4) RETURNS int4
+  LANGUAGE sql AS 'SELECT 0';
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+WARNING:  lolor: could not restore the native large object function names: function lolor_lo_open(oid, integer) already exists in schema "pg_catalog"
+WARNING:  lolor.allow_unsafe_drop is on: the native large object function names are not restored
+SELECT count(*) AS extension_gone FROM pg_extension WHERE extname = 'lolor';
+ extension_gone 
+----------------
+              0
+(1 row)
+
+SELECT count(*) AS left_parked FROM pg_proc
+ WHERE pronamespace = 'pg_catalog'::regnamespace AND proname LIKE '%\_orig';
+ left_parked 
+-------------
+          20
 (1 row)
 
 ROLLBACK;
