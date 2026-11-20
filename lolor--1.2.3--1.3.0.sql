@@ -3,6 +3,99 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "ALTER EXTENSION lolor UPDATE" to load this file. \quit
 
+/*
+ * Refuse while lolor.node is configured with a value the server rejects.
+ *
+ * Through 1.2.3 the setting accepted 16, although a generated OID has four
+ * bits for the node id.  A node configured that way worked, with node bits
+ * that read back as 0.  From 1.3.0 the bound is 15: the server rejects the
+ * configured 16 at startup with a line in the log, lolor.node falls back to
+ * 0, which means unset, and every call that creates a large object fails.
+ * Nothing else points the operator at the cause, so stop the update here and
+ * say what to change.
+ *
+ * The running value cannot tell a rejected 16 from a node id that was never
+ * set, and a new installation may legitimately set it after CREATE
+ * EXTENSION, so look at what is configured instead.
+ *
+ * Offer each configured value to the server with set_config() and see
+ * whether it is taken.  That way the server's own parsing decides, whatever
+ * way the value is written (16, 0x10, 020, +16, 16.0).
+ *
+ * Configuration files (postgresql.auto.conf included): only the last entry
+ * counts, because a later line overrides an earlier one.  The error column
+ * of pg_file_settings is not enough here: when the file has an unrelated
+ * mistake, such as an unknown parameter, the server stops before it
+ * validates any value and the column stays empty.
+ *
+ * Per-database and per-role settings: only settings that can apply to a
+ * session in this database are looked at; one on another database is that
+ * database's concern, and its own update reports it.
+ */
+DO $$
+DECLARE
+  sources text[] := '{}';
+  running text := pg_catalog.current_setting('lolor.node');
+  s       record;
+BEGIN
+  FOR s IN
+    SELECT pg_catalog.format('%s (lolor.node = %s)', l.sourcefile, l.setting)
+             AS src,
+           l.setting AS val
+      FROM (SELECT f.sourcefile, f.setting
+              FROM pg_catalog.pg_file_settings f
+             WHERE pg_catalog.lower(f.name) = 'lolor.node'
+             ORDER BY f.seqno DESC
+             LIMIT 1) l
+    UNION ALL
+    SELECT CASE
+             WHEN rs.setdatabase = 0 AND rs.setrole = 0 THEN
+               pg_catalog.format('ALTER ROLE ALL SET lolor.node = %s', v.val)
+             WHEN rs.setrole = 0 THEN
+               pg_catalog.format('ALTER DATABASE %I SET lolor.node = %s',
+                                 d.datname, v.val)
+             WHEN rs.setdatabase = 0 THEN
+               pg_catalog.format('ALTER ROLE %I SET lolor.node = %s',
+                                 r.rolname, v.val)
+             ELSE
+               pg_catalog.format('ALTER ROLE %I IN DATABASE %I SET lolor.node = %s',
+                                 r.rolname, d.datname, v.val)
+           END AS src,
+           v.val
+      FROM pg_catalog.pg_db_role_setting rs
+           LEFT JOIN pg_catalog.pg_database d ON d.oid = rs.setdatabase
+           LEFT JOIN pg_catalog.pg_roles r ON r.oid = rs.setrole,
+           pg_catalog.unnest(rs.setconfig) AS c,
+           LATERAL (SELECT pg_catalog.substr(c, 12) AS val) v
+     WHERE pg_catalog.lower(pg_catalog.substr(c, 1, 11)) = 'lolor.node='
+       AND (rs.setdatabase = 0
+            OR d.datname = pg_catalog.current_database())
+     ORDER BY 1
+  LOOP
+    BEGIN
+      PERFORM pg_catalog.set_config('lolor.node', s.val, true);
+    EXCEPTION WHEN invalid_parameter_value THEN
+      sources := sources || s.src;
+    END;
+  END LOOP;
+
+  -- An accepted value was applied to this transaction; put the old one back.
+  PERFORM pg_catalog.set_config('lolor.node', running, true);
+
+  IF pg_catalog.cardinality(sources) > 0 THEN
+    RAISE EXCEPTION 'lolor.node is configured with a value the server rejects: %',
+                    pg_catalog.array_to_string(sources, '; ')
+      USING DETAIL = 'lolor 1.3.0 accepts node ids 1 through 15. The server '
+                     'ignores any other value, lolor.node falls back to 0 '
+                     '(unset), and large objects cannot be created on this node.',
+            HINT = 'Set lolor.node to a value from 1 to 15 that no other node '
+                   'uses, then run this command again. A change in a '
+                   'configuration file needs a reload first. A database or '
+                   'role setting is changed with ALTER DATABASE or ALTER ROLE.';
+  END IF;
+END;
+$$;
+
 -- Warn if there are active streaming replicas — they need lolor installed too
 DO $$
 BEGIN
