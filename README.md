@@ -104,12 +104,16 @@ while any object remains in lolor storage, on every path that reaches it
 (`DROP EXTENSION`, `DROP SCHEMA lolor CASCADE`, `DROP OWNED BY`). The drop
 itself only puts the native `pg_catalog.lo_*` names back. To discard whatever
 is in lolor storage instead, a superuser can set `lolor.allow_unsafe_drop = on`
-for the session that runs the drop. It skips every check, and the drop then
-does not restore the native function names either, so run `lolor.disable()`
-first if lolor is enabled. While lolor is enabled, a normal drop renames the
-native functions back, so it has the same requirements as `lolor.disable()`:
-no other session connected to the database, and a client session. A disabled
-lolor renames nothing, and the drop has no such requirement.
+for the session that runs the drop. It skips every check, but the drop still
+puts the native function names back, and stops with the error if a rename
+fails, so that it can be tried again. Other sessions may be connected during
+such a drop; they must reconnect before they use large objects again. If the
+`lo_on_drop_extension` event trigger is disabled, nothing is renamed and the
+drop warns that the names are still parked. While lolor is enabled, a normal
+drop renames the native functions back, so it has the same requirements as
+`lolor.disable()`: no other session connected to the database, and a client
+session. A disabled lolor renames nothing, and the drop has no such
+requirement.
 
 Both directions preserve original OIDs, owners, ACLs, comments and data, and
 copy pages verbatim so sparse large objects stay sparse. Moving an object to

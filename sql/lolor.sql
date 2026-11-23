@@ -326,15 +326,65 @@ SET LOCAL lolor.allow_unsafe_drop = on;
 DROP EXTENSION lolor;
 SELECT count(*) AS extension_gone FROM pg_extension WHERE extname = 'lolor';
 ROLLBACK;
--- With the trigger back on, the escape hatch also skips the function restore
--- and says so
-ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+-- Enabled, the escape hatch cannot rename the native functions back without
+-- the trigger, and says so
 SELECT lolor.enable();
 BEGIN;
 SET LOCAL lolor.allow_unsafe_drop = on;
 DROP EXTENSION lolor;
 SELECT to_regprocedure('pg_catalog.lo_open_orig(oid,int4)') IS NOT NULL AS orig_left_parked;
 ROLLBACK;
+-- With the trigger back on it does, so the native functions work after the
+-- drop and lolor can be installed again
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+BEGIN;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+SELECT count(*) AS left_parked FROM pg_proc
+ WHERE pronamespace = 'pg_catalog'::regnamespace
+   AND (proname LIKE '%\_orig' OR proname LIKE 'lolor\_%');
+SELECT lo_unlink(lo_from_bytea(0, 'native again')) AS native_works;
+CREATE EXTENSION lolor;
+SELECT lolor.is_enabled() AS reinstalled_enabled;
+ROLLBACK;
+-- A rename that fails stops the drop, so nothing is lost and it can be
+-- tried again
+BEGIN;
+CREATE FUNCTION pg_catalog.lolor_lo_open(oid, int4) RETURNS int4
+  LANGUAGE sql AS 'SELECT 0';
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+ROLLBACK;
+SELECT lolor.is_enabled() AS still_installed_and_enabled;
+-- So does a role that cannot rename the built-in functions
+CREATE ROLE regress_lolor_schema_owner;
+BEGIN;
+ALTER SCHEMA lolor OWNER TO regress_lolor_schema_owner;
+SET LOCAL lolor.allow_unsafe_drop = on;
+SET LOCAL ROLE regress_lolor_schema_owner;
+DROP SCHEMA lolor CASCADE;
+ROLLBACK;
+DROP ROLE regress_lolor_schema_owner;
+-- A catalog renamed halfway by hand is finished off, although lo_open() is
+-- already back and lolor counts as disabled
+BEGIN;
+ALTER FUNCTION pg_catalog.lo_open(oid, int4) RENAME TO lolor_lo_open;
+ALTER FUNCTION pg_catalog.lo_open_orig(oid, int4) RENAME TO lo_open;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+SELECT count(*) AS left_parked FROM pg_proc
+ WHERE pronamespace = 'pg_catalog'::regnamespace
+   AND (proname LIKE '%\_orig' OR proname LIKE 'lolor\_%');
+ROLLBACK;
+-- and with the trigger off the warning covers that state too
+ALTER EVENT TRIGGER lo_on_drop_extension DISABLE;
+BEGIN;
+ALTER FUNCTION pg_catalog.lo_open(oid, int4) RENAME TO lolor_lo_open;
+ALTER FUNCTION pg_catalog.lo_open_orig(oid, int4) RENAME TO lo_open;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+ROLLBACK;
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
 SELECT lolor.disable();
 -- Back on the supported path: migrate out by hand, then drop
 SELECT lolor.enable();
