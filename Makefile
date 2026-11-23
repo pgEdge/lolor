@@ -9,6 +9,7 @@ PGFILEDESC = "lolor - large objects for logical replication"
 OBJS = src/lolor.o
 
 REGRESS = lolor
+TAP_TESTS = 1
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config

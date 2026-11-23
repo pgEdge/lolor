@@ -93,9 +93,23 @@ script, so call it after an upgrade.
 
 ## Tests
 
-`sql/lolor.sql` needs a patched server that runs with the settings above, plus
-`test_decoding`:
+All tests need a server with the core patch and, for the TAP tests, a build
+configured with `--enable-tap-tests`.  Install lolor first.
 
 ```
-make USE_PGXS=1 installcheck
+make USE_PGXS=1 installcheck REGRESS=
 ```
+
+runs the TAP tests in `t/`:
+
+- `001_lolor_basic.pl`: every large object function (including `lo_import`,
+  `lo_export`, 64-bit offsets, holes, permissions, rollback), the changes
+  logical decoding sees, `pg_dump` and restore, a physical standby, dropping
+  and re-creating the extension, and the start-up requirements.
+- `002_lolor_spock.pl`: two Spock nodes replicating in both directions.  Every
+  kind of change is checked to arrive page for page, the functions are checked
+  to work on the replicated data, and concurrent load runs on both nodes.
+  Skipped when Spock is not installed.
+
+`make USE_PGXS=1 installcheck TAP_TESTS=` runs `sql/lolor.sql` instead, against
+a running server configured as described at the top of that file.
