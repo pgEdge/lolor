@@ -376,6 +376,17 @@ SELECT count(*) AS left_parked FROM pg_proc
  WHERE pronamespace = 'pg_catalog'::regnamespace
    AND (proname LIKE '%\_orig' OR proname LIKE 'lolor\_%');
 ROLLBACK;
+-- The same when only lolor's function was moved aside and the native name
+-- is free
+BEGIN;
+ALTER FUNCTION pg_catalog.lo_open(oid, int4) RENAME TO lolor_lo_open;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+SELECT count(*) AS left_parked FROM pg_proc
+ WHERE pronamespace = 'pg_catalog'::regnamespace
+   AND (proname LIKE '%\_orig' OR proname LIKE 'lolor\_%');
+SELECT to_regprocedure('pg_catalog.lo_open(oid,int4)') IS NOT NULL AS lo_open_back;
+ROLLBACK;
 -- and with the trigger off the warning covers that state too
 ALTER EVENT TRIGGER lo_on_drop_extension DISABLE;
 BEGIN;
