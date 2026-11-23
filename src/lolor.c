@@ -31,6 +31,7 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "commands/event_trigger.h"
+#include "common/string.h"
 #include "commands/extension.h"
 #include "executor/spi.h"
 #include "nodes/parsenodes.h"
@@ -903,12 +904,10 @@ lolor_native_functions_parked(void)
 	while (HeapTupleIsValid(tup = systable_getnext(scan)))
 	{
 		Form_pg_proc proc = (Form_pg_proc) GETSTRUCT(tup);
-		size_t		len = strlen(NameStr(proc->proname));
 
 		if (proc->pronamespace == PG_CATALOG_NAMESPACE &&
 			proc->oid < FirstNormalObjectId &&
-			len > 5 &&
-			strcmp(NameStr(proc->proname) + len - 5, "_orig") == 0)
+			pg_str_endswith(NameStr(proc->proname), "_orig"))
 		{
 			found = true;
 			break;
@@ -921,6 +920,55 @@ lolor_native_functions_parked(void)
 }
 
 /*
+ * The statements that put the native large object functions back, in the
+ * order to run them.
+ *
+ * A parked function is a built-in one in pg_catalog named <name>_orig.  If a
+ * function of this extension holds <name> with the same arguments, it is
+ * moved to lolor_<name> first, as disable() would leave it; it goes with the
+ * extension.  Then the parked function is renamed back.  The second step
+ * does not depend on the first, so that a name somebody already freed by
+ * hand is filled as well, and a name held by anything else fails the rename.
+ *
+ * The names are rendered here, before anything is renamed.  regprocedure
+ * qualifies a name exactly when an unqualified lookup would not find it,
+ * which is how ALTER FUNCTION resolves it too.
+ */
+static const char *const lolor_restore_names_query =
+"WITH parked AS ("
+"  SELECT o.oid, o.proargtypes, "
+"         pg_catalog.left(o.proname::pg_catalog.text, -5) AS name "
+"    FROM pg_catalog.pg_proc o "
+"   WHERE o.pronamespace OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.regnamespace "
+"     AND o.oid OPERATOR(pg_catalog.<) " CppAsString2(FirstNormalObjectId) "::pg_catalog.oid "
+"     AND pg_catalog.right(o.proname::pg_catalog.text, 5) OPERATOR(pg_catalog.=) '_orig'"
+") "
+"SELECT s.stmt FROM ("
+"  SELECT p.oid AS parked, 1 AS step, "
+"         pg_catalog.format('ALTER FUNCTION %s RENAME TO %I', "
+"             l.oid::pg_catalog.regprocedure, "
+"             'lolor_' OPERATOR(pg_catalog.||) p.name) AS stmt "
+"    FROM parked p "
+"         JOIN pg_catalog.pg_proc l "
+"           ON l.pronamespace OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.regnamespace "
+"          AND l.proname::pg_catalog.text OPERATOR(pg_catalog.=) p.name "
+"          AND l.proargtypes OPERATOR(pg_catalog.=) p.proargtypes "
+"         JOIN pg_catalog.pg_depend d "
+"           ON d.classid OPERATOR(pg_catalog.=) 'pg_catalog.pg_proc'::pg_catalog.regclass "
+"          AND d.objid OPERATOR(pg_catalog.=) l.oid "
+"          AND d.refclassid OPERATOR(pg_catalog.=) 'pg_catalog.pg_extension'::pg_catalog.regclass "
+"          AND d.deptype OPERATOR(pg_catalog.=) 'e' "
+"         JOIN pg_catalog.pg_extension e "
+"           ON e.oid OPERATOR(pg_catalog.=) d.refobjid "
+"          AND e.extname OPERATOR(pg_catalog.=) '" EXTENSION_NAME "' "
+"  UNION ALL "
+"  SELECT p.oid, 2, "
+"         pg_catalog.format('ALTER FUNCTION %s RENAME TO %I', "
+"             p.oid::pg_catalog.regprocedure, p.name) "
+"    FROM parked p"
+") s ORDER BY s.parked, s.step";
+
+/*
  * lolor_unsafe_restore_native_names
  *
  *	Rename the native large object functions back for a drop that runs with
@@ -929,11 +977,8 @@ lolor_native_functions_parked(void)
  *	The normal drop calls lolor.disable() for this.  That is not usable
  *	here: disable() refuses on a version skew or while other sessions are
  *	connected, and this setting skips those checks.  So do the renames
- *	directly, and work the pairs out from the catalog rather than from a
- *	list: a parked pg_catalog.<name>_orig, and a function of this extension
- *	that holds <name> with the same arguments.  lolor's function moves to
- *	lolor_<name>, as disable() would leave it, and goes with the extension.
- *	With no such pair this does nothing.
+ *	directly, and work them out from the catalog rather than from a list;
+ *	see lolor_restore_names_query.  With nothing parked this does nothing.
  *
  *	The setting skips the safety checks, not this step: an error here stops
  *	the drop, so the database is left as it was and the drop can be tried
@@ -946,75 +991,41 @@ lolor_native_functions_parked(void)
 static void
 lolor_unsafe_restore_native_names(void)
 {
-	SPITupleTable *pairs;
-	uint64		npairs;
+	SPITupleTable *stmts;
+	uint64		nstmts;
 	uint64		i;
-	int			ret;
 
 	if (SPI_connect() != SPI_OK_CONNECT)
 		elog(ERROR, "SPI_connect failed");
 
-	/*
-	 * One row per pair: the statement that moves lolor's function aside,
-	 * then the one that puts the native function back.  The names are
-	 * rendered here, before anything is renamed.  regprocedure qualifies a
-	 * name exactly when an unqualified lookup would not find it, which is
-	 * how ALTER FUNCTION resolves it too.
-	 */
-	ret = SPI_execute(
-					  "SELECT pg_catalog.format('ALTER FUNCTION %s RENAME TO %I', "
-					  "           l.oid::pg_catalog.regprocedure, "
-					  "           'lolor_' OPERATOR(pg_catalog.||) l.proname::pg_catalog.text), "
-					  "       pg_catalog.format('ALTER FUNCTION %s RENAME TO %I', "
-					  "           o.oid::pg_catalog.regprocedure, l.proname) "
-					  "  FROM pg_catalog.pg_proc o "
-					  "       JOIN pg_catalog.pg_proc l "
-					  "         ON l.pronamespace OPERATOR(pg_catalog.=) o.pronamespace "
-					  "        AND l.proargtypes OPERATOR(pg_catalog.=) o.proargtypes "
-					  "        AND (l.proname::pg_catalog.text OPERATOR(pg_catalog.||) '_orig') "
-					  "            OPERATOR(pg_catalog.=) o.proname::pg_catalog.text "
-					  "       JOIN pg_catalog.pg_depend d "
-					  "         ON d.classid OPERATOR(pg_catalog.=) 'pg_catalog.pg_proc'::pg_catalog.regclass "
-					  "        AND d.objid OPERATOR(pg_catalog.=) l.oid "
-					  "        AND d.refclassid OPERATOR(pg_catalog.=) 'pg_catalog.pg_extension'::pg_catalog.regclass "
-					  "        AND d.deptype OPERATOR(pg_catalog.=) 'e' "
-					  "       JOIN pg_catalog.pg_extension e "
-					  "         ON e.oid OPERATOR(pg_catalog.=) d.refobjid "
-					  "        AND e.extname OPERATOR(pg_catalog.=) '" EXTENSION_NAME "' "
-					  " WHERE o.pronamespace OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.regnamespace "
-					  " ORDER BY 1",
-					  false, 0);
-	if (ret != SPI_OK_SELECT)
-		elog(ERROR, "could not list the parked functions: %s",
-			 SPI_result_code_string(ret));
+	if (SPI_execute(lolor_restore_names_query, false, 0) != SPI_OK_SELECT)
+		elog(ERROR, "could not list the parked functions");
 
-	pairs = SPI_tuptable;
-	npairs = SPI_processed;
+	stmts = SPI_tuptable;
+	nstmts = SPI_processed;
+	if (nstmts == 0)
+	{
+		SPI_finish();
+		return;
+	}
 
 	/*
 	 * The built-in functions belong to the bootstrap superuser, so anyone
-	 * else fails on the first rename with "must be owner of function".  Say
-	 * what is needed instead.
+	 * else fails on a rename with "must be owner of function".  Say what is
+	 * needed instead.
 	 */
-	if (npairs > 0 && !superuser())
+	if (!superuser())
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("must be superuser to drop lolor with lolor.allow_unsafe_drop while native large object functions are parked"),
 				 errdetail("The drop renames the native large object functions in pg_catalog back.")));
 
-	for (i = 0; i < npairs; i++)
+	for (i = 0; i < nstmts; i++)
 	{
-		int			col;
+		char	   *stmt = SPI_getvalue(stmts->vals[i], stmts->tupdesc, 1);
 
-		for (col = 1; col <= 2; col++)
-		{
-			char	   *cmd = SPI_getvalue(pairs->vals[i], pairs->tupdesc, col);
-
-			ret = SPI_execute(cmd, false, 0);
-			if (ret != SPI_OK_UTILITY)
-				elog(ERROR, "\"%s\" failed: %s", cmd,
-					 SPI_result_code_string(ret));
-		}
+		if (SPI_execute(stmt, false, 0) != SPI_OK_UTILITY)
+			elog(ERROR, "\"%s\" failed", stmt);
 	}
 
 	SPI_finish();
@@ -1023,9 +1034,8 @@ lolor_unsafe_restore_native_names(void)
 	 * The same notice disable() gives.  Here other sessions may well be
 	 * connected, and theirs is the function that is about to be dropped.
 	 */
-	if (npairs > 0)
-		ereport(NOTICE,
-				(errmsg("lolor: reconnect existing client sessions; they cache large object function OIDs")));
+	ereport(NOTICE,
+			(errmsg("lolor: reconnect existing client sessions; they cache large object function OIDs")));
 }
 
 /*
