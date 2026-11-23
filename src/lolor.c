@@ -21,12 +21,14 @@
 #include "access/genam.h"
 #include "access/htup_details.h"
 #include "access/table.h"
+#include "access/transam.h"
 #include "catalog/dependency.h"
 #include "catalog/namespace.h"
 #include "catalog/objectaccess.h"
 #include "catalog/pg_extension.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_namespace.h"
+#include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "commands/event_trigger.h"
 #include "commands/extension.h"
@@ -60,6 +62,8 @@ void	_PG_init(void);
 static void lolor_object_access(ObjectAccessType access, Oid classId,
 								Oid objectId, int subId, void *arg);
 static void lolor_check_sole_session(const char *what);
+static bool lolor_native_functions_parked(void);
+static void lolor_unsafe_restore_native_names(void);
 static void lolor_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 								 bool readOnlyTree,
 								 ProcessUtilityContext context,
@@ -858,8 +862,170 @@ lolor_object_access(ObjectAccessType access, Oid classId, Oid objectId,
 			lolor_extension_drop_check(objectId);
 	}
 
+	/*
+	 * Under lolor.allow_unsafe_drop the event trigger renames the native
+	 * functions back before the drop.  If any is still parked when the
+	 * extension itself goes, the trigger did not run, and nothing can be
+	 * renamed from here.  Say what is left to do.
+	 */
+	if (access == OAT_DROP && lolor_allow_unsafe_drop &&
+		classId == ExtensionRelationId &&
+		objectId == get_extension_oid(EXTENSION_NAME, true) &&
+		lolor_native_functions_parked())
+		ereport(WARNING,
+				(errmsg("lolor.allow_unsafe_drop is on: the native large object function names are not restored"),
+				 errhint("Rename the pg_catalog.lo_*_orig functions back by hand, or run lolor.disable() before the drop.")));
+
 	if (prev_object_access_hook)
 		prev_object_access_hook(access, classId, objectId, subId, arg);
+}
+
+/*
+ * lolor_native_functions_parked
+ *
+ *	Is any native large object function still parked as <name>_orig?
+ *
+ *	lolor_orig_functions_present() probes lo_open() alone, which is the
+ *	definition of "enabled".  That misses a catalog somebody repaired
+ *	halfway by hand, so look at all of them here: a built-in function in
+ *	pg_catalog whose name ends in _orig.  Core has none of its own.
+ */
+static bool
+lolor_native_functions_parked(void)
+{
+	Relation	rel;
+	SysScanDesc scan;
+	HeapTuple	tup;
+	bool		found = false;
+
+	rel = table_open(ProcedureRelationId, AccessShareLock);
+	scan = systable_beginscan(rel, InvalidOid, false, NULL, 0, NULL);
+	while (HeapTupleIsValid(tup = systable_getnext(scan)))
+	{
+		Form_pg_proc proc = (Form_pg_proc) GETSTRUCT(tup);
+		size_t		len = strlen(NameStr(proc->proname));
+
+		if (proc->pronamespace == PG_CATALOG_NAMESPACE &&
+			proc->oid < FirstNormalObjectId &&
+			len > 5 &&
+			strcmp(NameStr(proc->proname) + len - 5, "_orig") == 0)
+		{
+			found = true;
+			break;
+		}
+	}
+	systable_endscan(scan);
+	table_close(rel, AccessShareLock);
+
+	return found;
+}
+
+/*
+ * lolor_unsafe_restore_native_names
+ *
+ *	Rename the native large object functions back for a drop that runs with
+ *	lolor.allow_unsafe_drop.
+ *
+ *	The normal drop calls lolor.disable() for this.  That is not usable
+ *	here: disable() refuses on a version skew or while other sessions are
+ *	connected, and this setting skips those checks.  So do the renames
+ *	directly, and work the pairs out from the catalog rather than from a
+ *	list: a parked pg_catalog.<name>_orig, and a function of this extension
+ *	that holds <name> with the same arguments.  lolor's function moves to
+ *	lolor_<name>, as disable() would leave it, and goes with the extension.
+ *	With no such pair this does nothing.
+ *
+ *	The setting skips the safety checks, not this step: an error here stops
+ *	the drop, so the database is left as it was and the drop can be tried
+ *	again.  Going on would remove lolor's functions and leave pg_catalog
+ *	without the native ones.
+ *
+ *	This is plain SPI with no procedural language, since an old installation
+ *	may be in a database without plpgsql.
+ */
+static void
+lolor_unsafe_restore_native_names(void)
+{
+	SPITupleTable *pairs;
+	uint64		npairs;
+	uint64		i;
+	int			ret;
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	/*
+	 * One row per pair: the statement that moves lolor's function aside,
+	 * then the one that puts the native function back.  The names are
+	 * rendered here, before anything is renamed.  regprocedure qualifies a
+	 * name exactly when an unqualified lookup would not find it, which is
+	 * how ALTER FUNCTION resolves it too.
+	 */
+	ret = SPI_execute(
+					  "SELECT pg_catalog.format('ALTER FUNCTION %s RENAME TO %I', "
+					  "           l.oid::pg_catalog.regprocedure, "
+					  "           'lolor_' OPERATOR(pg_catalog.||) l.proname::pg_catalog.text), "
+					  "       pg_catalog.format('ALTER FUNCTION %s RENAME TO %I', "
+					  "           o.oid::pg_catalog.regprocedure, l.proname) "
+					  "  FROM pg_catalog.pg_proc o "
+					  "       JOIN pg_catalog.pg_proc l "
+					  "         ON l.pronamespace OPERATOR(pg_catalog.=) o.pronamespace "
+					  "        AND l.proargtypes OPERATOR(pg_catalog.=) o.proargtypes "
+					  "        AND (l.proname::pg_catalog.text OPERATOR(pg_catalog.||) '_orig') "
+					  "            OPERATOR(pg_catalog.=) o.proname::pg_catalog.text "
+					  "       JOIN pg_catalog.pg_depend d "
+					  "         ON d.classid OPERATOR(pg_catalog.=) 'pg_catalog.pg_proc'::pg_catalog.regclass "
+					  "        AND d.objid OPERATOR(pg_catalog.=) l.oid "
+					  "        AND d.refclassid OPERATOR(pg_catalog.=) 'pg_catalog.pg_extension'::pg_catalog.regclass "
+					  "        AND d.deptype OPERATOR(pg_catalog.=) 'e' "
+					  "       JOIN pg_catalog.pg_extension e "
+					  "         ON e.oid OPERATOR(pg_catalog.=) d.refobjid "
+					  "        AND e.extname OPERATOR(pg_catalog.=) '" EXTENSION_NAME "' "
+					  " WHERE o.pronamespace OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.regnamespace "
+					  " ORDER BY 1",
+					  false, 0);
+	if (ret != SPI_OK_SELECT)
+		elog(ERROR, "could not list the parked functions: %s",
+			 SPI_result_code_string(ret));
+
+	pairs = SPI_tuptable;
+	npairs = SPI_processed;
+
+	/*
+	 * The built-in functions belong to the bootstrap superuser, so anyone
+	 * else fails on the first rename with "must be owner of function".  Say
+	 * what is needed instead.
+	 */
+	if (npairs > 0 && !superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to drop lolor with lolor.allow_unsafe_drop while native large object functions are parked"),
+				 errdetail("The drop renames the native large object functions in pg_catalog back.")));
+
+	for (i = 0; i < npairs; i++)
+	{
+		int			col;
+
+		for (col = 1; col <= 2; col++)
+		{
+			char	   *cmd = SPI_getvalue(pairs->vals[i], pairs->tupdesc, col);
+
+			ret = SPI_execute(cmd, false, 0);
+			if (ret != SPI_OK_UTILITY)
+				elog(ERROR, "\"%s\" failed: %s", cmd,
+					 SPI_result_code_string(ret));
+		}
+	}
+
+	SPI_finish();
+
+	/*
+	 * The same notice disable() gives.  Here other sessions may well be
+	 * connected, and theirs is the function that is about to be dropped.
+	 */
+	if (npairs > 0)
+		ereport(NOTICE,
+				(errmsg("lolor: reconnect existing client sessions; they cache large object function OIDs")));
 }
 
 /*
@@ -984,16 +1150,16 @@ lolor_on_drop_extension(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 
 	/*
-	 * lolor.allow_unsafe_drop means drop no matter what: the object access
-	 * hook lets the extension go, and nothing is checked or renamed here
-	 * either.  Say so if that leaves the native names parked.
+	 * lolor.allow_unsafe_drop skips the checks: the object access hook lets
+	 * the extension go, and nothing is checked here either.  The native
+	 * names still have to come back, or the drop leaves pg_catalog without
+	 * any lo_open() and lolor cannot be installed again.  This is not
+	 * limited to an enabled lolor, so that a catalog left half renamed is
+	 * put right as well.
 	 */
 	if (lolor_allow_unsafe_drop)
 	{
-		if (lolor_orig_functions_present())
-			ereport(WARNING,
-					(errmsg("lolor.allow_unsafe_drop is on: the native large object function names are not restored"),
-					 errhint("Rename the pg_catalog.lo_*_orig functions back by hand, or run lolor.disable() before the drop.")));
+		lolor_unsafe_restore_native_names();
 		PG_RETURN_NULL();
 	}
 

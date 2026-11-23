@@ -834,9 +834,8 @@ SELECT count(*) AS extension_gone FROM pg_extension WHERE extname = 'lolor';
 (1 row)
 
 ROLLBACK;
--- With the trigger back on, the escape hatch also skips the function restore
--- and says so
-ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+-- Enabled, the escape hatch cannot rename the native functions back without
+-- the trigger, and says so
 SELECT lolor.enable();
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
  enable 
@@ -855,6 +854,87 @@ SELECT to_regprocedure('pg_catalog.lo_open_orig(oid,int4)') IS NOT NULL AS orig_
 (1 row)
 
 ROLLBACK;
+-- With the trigger back on it does, so the native functions work after the
+-- drop and lolor can be installed again
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
+BEGIN;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+SELECT count(*) AS left_parked FROM pg_proc
+ WHERE pronamespace = 'pg_catalog'::regnamespace
+   AND (proname LIKE '%\_orig' OR proname LIKE 'lolor\_%');
+ left_parked 
+-------------
+           0
+(1 row)
+
+SELECT lo_unlink(lo_from_bytea(0, 'native again')) AS native_works;
+ native_works 
+--------------
+            1
+(1 row)
+
+CREATE EXTENSION lolor;
+SELECT lolor.is_enabled() AS reinstalled_enabled;
+ reinstalled_enabled 
+---------------------
+ t
+(1 row)
+
+ROLLBACK;
+-- A rename that fails stops the drop, so nothing is lost and it can be
+-- tried again
+BEGIN;
+CREATE FUNCTION pg_catalog.lolor_lo_open(oid, int4) RETURNS int4
+  LANGUAGE sql AS 'SELECT 0';
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+ERROR:  function lolor_lo_open(oid, integer) already exists in schema "pg_catalog"
+ROLLBACK;
+SELECT lolor.is_enabled() AS still_installed_and_enabled;
+ still_installed_and_enabled 
+-----------------------------
+ t
+(1 row)
+
+-- So does a role that cannot rename the built-in functions
+CREATE ROLE regress_lolor_schema_owner;
+BEGIN;
+ALTER SCHEMA lolor OWNER TO regress_lolor_schema_owner;
+SET LOCAL lolor.allow_unsafe_drop = on;
+SET LOCAL ROLE regress_lolor_schema_owner;
+DROP SCHEMA lolor CASCADE;
+ERROR:  must be superuser to drop lolor with lolor.allow_unsafe_drop while native large object functions are parked
+ROLLBACK;
+DROP ROLE regress_lolor_schema_owner;
+-- A catalog renamed halfway by hand is finished off, although lo_open() is
+-- already back and lolor counts as disabled
+BEGIN;
+ALTER FUNCTION pg_catalog.lo_open(oid, int4) RENAME TO lolor_lo_open;
+ALTER FUNCTION pg_catalog.lo_open_orig(oid, int4) RENAME TO lo_open;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+SELECT count(*) AS left_parked FROM pg_proc
+ WHERE pronamespace = 'pg_catalog'::regnamespace
+   AND (proname LIKE '%\_orig' OR proname LIKE 'lolor\_%');
+ left_parked 
+-------------
+           0
+(1 row)
+
+ROLLBACK;
+-- and with the trigger off the warning covers that state too
+ALTER EVENT TRIGGER lo_on_drop_extension DISABLE;
+BEGIN;
+ALTER FUNCTION pg_catalog.lo_open(oid, int4) RENAME TO lolor_lo_open;
+ALTER FUNCTION pg_catalog.lo_open_orig(oid, int4) RENAME TO lo_open;
+SET LOCAL lolor.allow_unsafe_drop = on;
+DROP EXTENSION lolor;
+WARNING:  lolor.allow_unsafe_drop is on: the native large object function names are not restored
+ROLLBACK;
+ALTER EVENT TRIGGER lo_on_drop_extension ENABLE ALWAYS;
 SELECT lolor.disable();
 NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
  disable 
