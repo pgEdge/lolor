@@ -75,6 +75,7 @@ extern void AtEOSubXact_LOLOR_LargeObject(bool isCommit, SubTransactionId mySubi
 									SubTransactionId parentSubid);
 AclResult lolor_largeobject_aclcheck_snapshot(Oid lobj_oid, Oid roleid, AclMode mode,
 								 Snapshot snapshot);
+extern Acl *lolor_acl_normalize(Acl *acl);
 
 extern Datum lolor_lo_create(PG_FUNCTION_ARGS);
 extern Datum lolor_lo_import(PG_FUNCTION_ARGS);

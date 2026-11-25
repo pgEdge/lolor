@@ -101,6 +101,22 @@ static AclMode lolor_largeobject_aclmask_snapshot(Oid lobj_oid, Oid roleid,
 					AclMode mask, AclMaskHow how, Snapshot snapshot);
 
 /*
+ * An ACL whose entries were all revoked is an empty one-dimensional array,
+ * written "{}".  Reading "{}" back from text, as a dump and restore or a copy
+ * in text form does, gives an array with no dimensions, which the core ACL
+ * code rejects with "ACL arrays must be one-dimensional".  Both mean no
+ * privileges, so return the first form for the second.  The result is either
+ * the argument or a new palloc'd ACL.
+ */
+Acl *
+lolor_acl_normalize(Acl *acl)
+{
+	if (ARR_NDIM(acl) == 0)
+		return make_empty_acl();
+	return acl;
+}
+
+/*
  * LO "FD"s are indexes into the cookies array.
  *
  * A non-null entry is a pointer to a LargeObjectDesc allocated in the
@@ -1042,7 +1058,7 @@ lolor_largeobject_aclmask_snapshot(Oid lobj_oid, Oid roleid,
 	else
 	{
 		/* detoast ACL if necessary */
-		acl = DatumGetAclP(aclDatum);
+		acl = lolor_acl_normalize(DatumGetAclP(aclDatum));
 	}
 
 	result = aclmask(acl, roleid, ownerId, mask, how);

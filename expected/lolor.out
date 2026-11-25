@@ -1413,10 +1413,33 @@ SELECT lolor.fix_orphans('lolor_carol') AS objects_repaired;
                 1
 (1 row)
 
-SELECT lomacl FROM lolor.pg_largeobject_metadata WHERE oid = :revoked_oid;
- lomacl 
---------
- {}
+-- It is stored as one entry that grants the owner nothing: '{}' would be an
+-- array with no dimensions, which the ACL code rejects
+SELECT lomacl, array_ndims(lomacl) AS ndims
+  FROM lolor.pg_largeobject_metadata WHERE oid = :revoked_oid;
+           lomacl           | ndims 
+----------------------------+-------
+ {lolor_carol=/lolor_carol} |     1
+(1 row)
+
+SET ROLE lolor_carol;
+SELECT lolor_expect_error(format('SELECT lo_get(%s)', :revoked_oid)) AS owner_denied;
+              owner_denied              
+----------------------------------------
+ permission denied for large object NNN
+(1 row)
+
+RESET ROLE;
+SELECT count(*) AS orphans_left FROM lolor.check_orphans();
+ orphans_left 
+--------------
+            0
+(1 row)
+
+SELECT lolor.fix_orphans('lolor_carol') AS objects_repaired_again;
+ objects_repaired_again 
+------------------------
+                      0
 (1 row)
 
 SELECT lo_unlink(:revoked_oid);
@@ -1425,15 +1448,150 @@ SELECT lo_unlink(:revoked_oid);
          1
 (1 row)
 
+--
+-- An empty ACL read back from text, as a dump and restore does, has no
+-- dimensions.  lolor treats it as empty: the owner is denied rather than
+-- getting an ACL error, check_orphans() and fix_orphans() work, and
+-- migrate_to_native() stores the one-dimensional form, so the native
+-- functions and GRANT work on the object afterwards.
+--
+CREATE ROLE lolor_frank;
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+SET ROLE lolor_carol;
+SELECT lo_from_bytea(0, 'all revoked') AS empty_oid \gset
+REVOKE ALL ON LARGE OBJECT :empty_oid FROM lolor_carol;
+RESET ROLE;
+SET ROLE lolor_frank;
+SELECT lo_from_bytea(0, 'all revoked, owner dropped') AS empty_dead_oid \gset
+REVOKE ALL ON LARGE OBJECT :empty_dead_oid FROM lolor_frank;
+RESET ROLE;
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
+(1 row)
+
+SELECT lolor.migrate_from_native();
+NOTICE:  migrated 2 large object(s), 2 data page(s), to lolor storage
+ migrate_from_native 
+---------------------
+                   2
+(1 row)
+
+UPDATE lolor.pg_largeobject_metadata SET lomacl = lomacl::text::aclitem[]
+ WHERE oid IN (:empty_oid, :empty_dead_oid);
+SELECT count(*) AS acls_without_dimensions FROM lolor.pg_largeobject_metadata
+ WHERE oid IN (:empty_oid, :empty_dead_oid) AND array_ndims(lomacl) IS NULL;
+ acls_without_dimensions 
+-------------------------
+                       2
+(1 row)
+
+SET ROLE lolor_carol;
+SELECT lolor_expect_error(format('SELECT lo_get(%s)', :empty_oid)) AS owner_denied;
+              owner_denied              
+----------------------------------------
+ permission denied for large object NNN
+(1 row)
+
+RESET ROLE;
+DROP ROLE lolor_frank;
+SELECT role_kind, count(*) FROM lolor.check_orphans() GROUP BY 1 ORDER BY 1;
+ role_kind | count 
+-----------+-------
+ owner     |     1
+(1 row)
+
+SELECT lolor.fix_orphans('lolor_carol') AS objects_repaired;
+ objects_repaired 
+------------------
+                1
+(1 row)
+
+SELECT CASE oid WHEN :empty_oid THEN 'owner kept' ELSE 'owner replaced' END AS obj,
+       lomacl, array_ndims(lomacl) AS ndims
+  FROM lolor.pg_largeobject_metadata
+ WHERE oid IN (:empty_oid, :empty_dead_oid) ORDER BY 1;
+      obj       |           lomacl           | ndims 
+----------------+----------------------------+-------
+ owner kept     | {}                         |      
+ owner replaced | {lolor_carol=/lolor_carol} |     1
+(2 rows)
+
+SELECT lolor.migrate_to_native();
+NOTICE:  migrated 11 large object(s), 11 data page(s), to native storage
+ migrate_to_native 
+-------------------
+                11
+(1 row)
+
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+SELECT count(*) AS native_acls_without_dimensions
+  FROM pg_catalog.pg_largeobject_metadata
+ WHERE oid IN (:empty_oid, :empty_dead_oid) AND array_ndims(lomacl) IS NULL;
+ native_acls_without_dimensions 
+--------------------------------
+                              0
+(1 row)
+
+SET ROLE lolor_carol;
+SELECT lolor_expect_error(format('SELECT lo_get(%s)', :empty_oid)) AS native_owner_denied;
+          native_owner_denied           
+----------------------------------------
+ permission denied for large object NNN
+(1 row)
+
+RESET ROLE;
+GRANT SELECT ON LARGE OBJECT :empty_oid TO lolor_carol;
+SET ROLE lolor_carol;
+SELECT convert_from(lo_get(:empty_oid), 'UTF8') AS native_owner_reads_after_grant;
+ native_owner_reads_after_grant 
+--------------------------------
+ all revoked
+(1 row)
+
+RESET ROLE;
+SELECT lo_unlink(:empty_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lo_unlink(:empty_dead_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
+(1 row)
+
 DROP ROLE lolor_carol;
 DROP ROLE lolor_dave;
 DROP ROLE lolor_bob;
 DROP FUNCTION lolor_expect_error(text);
 SELECT lolor.migrate_to_native();
-NOTICE:  migrated 9 large object(s), 9 data page(s), to native storage
+NOTICE:  no lolor large objects to migrate
  migrate_to_native 
 -------------------
-                 9
+                 0
 (1 row)
 
 DROP EXTENSION lolor;
@@ -2673,9 +2831,9 @@ SELECT kind, count(*) FROM lolor_new GROUP BY kind ORDER BY kind;
  constraint             |     3
  dump configuration     |     1
  event trigger          |     1
- function               |    34
+ function               |    35
  index                  |     3
- member                 |    38
+ member                 |    39
  parked native function |    20
  table                  |     6
 (9 rows)

@@ -166,6 +166,10 @@ both directions. The following changes describe the migration functions:
 - A move back to native storage records ownership and ACLs in
   `pg_shdepend`, so `DROP ROLE`, `REASSIGN OWNED` and `DROP OWNED` see the
   objects again.
+- An ACL with every privilege revoked reads back from text, for example
+  after a dump and restore, as an array with no dimensions, which the
+  PostgreSQL ACL code rejects. lolor treats it as an empty ACL, and a move
+  back to native storage stores it in the form PostgreSQL expects.
 - The new table `lolor.pg_largeobject_description` holds the comment of
   each object while the object is in lolor storage. `lo_unlink()` removes
   the parked comment together with the object.

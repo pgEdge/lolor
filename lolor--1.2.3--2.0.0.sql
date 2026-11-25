@@ -153,6 +153,19 @@ AS 'MODULE_PATHNAME', 'lolor_require_version_match'
 LANGUAGE C STRICT STABLE;
 
 /*
+ * An ACL whose entries were all revoked is an empty one-dimensional array,
+ * written "{}".  Reading "{}" back from text, as a dump and restore or a copy
+ * in text form does, gives an array with no dimensions, which aclexplode()
+ * and the rest of the ACL code reject with "ACL arrays must be
+ * one-dimensional".  Both hold no entries, so for aclexplode(), which skips a
+ * NULL, return NULL for either.
+ */
+CREATE FUNCTION lolor._acl_or_null(acl aclitem[])
+RETURNS aclitem[] AS $$
+  SELECT CASE WHEN pg_catalog.array_ndims(acl) = 1 THEN acl END
+$$ LANGUAGE sql IMMUTABLE STRICT;
+
+/*
  * Large objects in lolor storage that refer to a role which no longer exists,
  * as owner, grantee or grantor.
  *
@@ -171,12 +184,14 @@ RETURNS TABLE (loid oid, role_oid oid, role_kind text) AS $$
   WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = m.lomowner)
   UNION
   SELECT m.oid, a.grantee, 'grantee'
-  FROM lolor.pg_largeobject_metadata m, pg_catalog.aclexplode(m.lomacl) a
+  FROM lolor.pg_largeobject_metadata m,
+       pg_catalog.aclexplode(lolor._acl_or_null(m.lomacl)) a
   WHERE a.grantee <> 0
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantee)
   UNION
   SELECT m.oid, a.grantor, 'grantor'
-  FROM lolor.pg_largeobject_metadata m, pg_catalog.aclexplode(m.lomacl) a
+  FROM lolor.pg_largeobject_metadata m,
+       pg_catalog.aclexplode(lolor._acl_or_null(m.lomacl)) a
   WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantor)
   ORDER BY 1, 3, 2
 $$ LANGUAGE sql STABLE;
@@ -216,8 +231,12 @@ BEGIN
 
   WITH o AS (
     SELECT m.oid, m.lomowner AS old_owner, m.lomacl,
-           NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = m.lomowner) AS owner_dead
-    FROM lolor.pg_largeobject_metadata m)
+           lolor._acl_or_null(m.lomacl) AS acl,
+           r.oid IS NULL AS owner_dead,
+           pg_catalog.quote_ident(coalesce(r.rolname, nr.rolname)) AS owner_name
+    FROM lolor.pg_largeobject_metadata m
+    LEFT JOIN pg_catalog.pg_roles r ON r.oid = m.lomowner
+    JOIN pg_catalog.pg_roles nr ON nr.oid = new_owner)
   UPDATE lolor.pg_largeobject_metadata m
      SET lomowner = CASE WHEN o.owner_dead THEN new_owner::oid ELSE m.lomowner END,
          -- aclexplode() yields one row per privilege.  Substitute the owner,
@@ -227,8 +246,10 @@ BEGIN
          -- same pair, since GRANT and REVOKE update only the first, and
          -- makeaclitem() cannot mix grant options within one entry.  Large
          -- objects carry only SELECT (r) and UPDATE (w).  An explicit ACL
-         -- with no entries left stays empty rather than turning into NULL,
-         -- which would hand the owner the default privileges back.
+         -- with no entries left keeps one entry that grants the owner
+         -- nothing.  NULL would hand the owner the default privileges back,
+         -- and '{}' gives an array with no dimensions, which the ACL code
+         -- rejects; an empty one-dimensional array cannot be written in SQL.
          lomacl = CASE WHEN o.lomacl IS NULL THEN NULL ELSE coalesce((
            SELECT array_agg(s.item ORDER BY s.grantee, s.grantor)
            FROM (SELECT p.grantee, p.grantor,
@@ -244,17 +265,17 @@ BEGIN
                                    THEN new_owner::oid ELSE a.grantor END AS grantor,
                               a.privilege_type,
                               bool_or(a.is_grantable) AS grantable
-                       FROM pg_catalog.aclexplode(o.lomacl) a
+                       FROM pg_catalog.aclexplode(o.acl) a
                        GROUP BY 1, 2, 3) p
                  LEFT JOIN pg_catalog.pg_roles ge ON ge.oid = p.grantee
                  JOIN pg_catalog.pg_roles gr ON gr.oid = p.grantor
                  WHERE p.grantee = 0 OR ge.oid IS NOT NULL
                  GROUP BY p.grantee, p.grantor, ge.rolname, gr.rolname) s),
-           '{}'::pg_catalog.aclitem[]) END
+           ARRAY[pg_catalog.format('%s=/%s', o.owner_name, o.owner_name)::pg_catalog.aclitem]) END
     FROM o
    WHERE m.oid = o.oid
      AND (o.owner_dead
-          OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(o.lomacl) a
+          OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(o.acl) a
                      WHERE (a.grantee <> 0
                             AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantee))
                         OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = a.grantor)));

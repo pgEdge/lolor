@@ -295,7 +295,7 @@ check_orphaned_roles(MigrateRels *rels)
 
 		if (!orphan && !nulls[Anum_pg_largeobject_metadata_lomacl - 1])
 		{
-			Acl		   *acl = DatumGetAclP(values[Anum_pg_largeobject_metadata_lomacl - 1]);
+			Acl		   *acl = lolor_acl_normalize(DatumGetAclP(values[Anum_pg_largeobject_metadata_lomacl - 1]));
 			Oid		   *roles;
 			int			nroles = aclmembers(acl, &roles);
 			int			i;
@@ -447,6 +447,14 @@ copy_metadata(MigrateRels *rels)
 
 		loid = DatumGetObjectId(values[Anum_pg_largeobject_metadata_oid - 1]);
 		owner = DatumGetObjectId(values[Anum_pg_largeobject_metadata_lomowner - 1]);
+
+		/*
+		 * Store an empty ACL in the form the core ACL code accepts, so the
+		 * native functions, GRANT and REVOKE work on it after the move.
+		 */
+		if (!nulls[Anum_pg_largeobject_metadata_lomacl - 1])
+			values[Anum_pg_largeobject_metadata_lomacl - 1] =
+				PointerGetDatum(lolor_acl_normalize(DatumGetAclP(values[Anum_pg_largeobject_metadata_lomacl - 1])));
 
 		newtup = heap_form_tuple(dstdesc, values, nulls);
 		CatalogTupleInsertWithInfo(rels->dst_meta, newtup, indstate);

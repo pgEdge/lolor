@@ -602,8 +602,64 @@ SELECT lolor.enable();
 SELECT lolor.migrate_from_native();
 DROP ROLE lolor_eve;
 SELECT lolor.fix_orphans('lolor_carol') AS objects_repaired;
-SELECT lomacl FROM lolor.pg_largeobject_metadata WHERE oid = :revoked_oid;
+-- It is stored as one entry that grants the owner nothing: '{}' would be an
+-- array with no dimensions, which the ACL code rejects
+SELECT lomacl, array_ndims(lomacl) AS ndims
+  FROM lolor.pg_largeobject_metadata WHERE oid = :revoked_oid;
+SET ROLE lolor_carol;
+SELECT lolor_expect_error(format('SELECT lo_get(%s)', :revoked_oid)) AS owner_denied;
+RESET ROLE;
+SELECT count(*) AS orphans_left FROM lolor.check_orphans();
+SELECT lolor.fix_orphans('lolor_carol') AS objects_repaired_again;
 SELECT lo_unlink(:revoked_oid);
+--
+-- An empty ACL read back from text, as a dump and restore does, has no
+-- dimensions.  lolor treats it as empty: the owner is denied rather than
+-- getting an ACL error, check_orphans() and fix_orphans() work, and
+-- migrate_to_native() stores the one-dimensional form, so the native
+-- functions and GRANT work on the object afterwards.
+--
+CREATE ROLE lolor_frank;
+SELECT lolor.disable();
+SET ROLE lolor_carol;
+SELECT lo_from_bytea(0, 'all revoked') AS empty_oid \gset
+REVOKE ALL ON LARGE OBJECT :empty_oid FROM lolor_carol;
+RESET ROLE;
+SET ROLE lolor_frank;
+SELECT lo_from_bytea(0, 'all revoked, owner dropped') AS empty_dead_oid \gset
+REVOKE ALL ON LARGE OBJECT :empty_dead_oid FROM lolor_frank;
+RESET ROLE;
+SELECT lolor.enable();
+SELECT lolor.migrate_from_native();
+UPDATE lolor.pg_largeobject_metadata SET lomacl = lomacl::text::aclitem[]
+ WHERE oid IN (:empty_oid, :empty_dead_oid);
+SELECT count(*) AS acls_without_dimensions FROM lolor.pg_largeobject_metadata
+ WHERE oid IN (:empty_oid, :empty_dead_oid) AND array_ndims(lomacl) IS NULL;
+SET ROLE lolor_carol;
+SELECT lolor_expect_error(format('SELECT lo_get(%s)', :empty_oid)) AS owner_denied;
+RESET ROLE;
+DROP ROLE lolor_frank;
+SELECT role_kind, count(*) FROM lolor.check_orphans() GROUP BY 1 ORDER BY 1;
+SELECT lolor.fix_orphans('lolor_carol') AS objects_repaired;
+SELECT CASE oid WHEN :empty_oid THEN 'owner kept' ELSE 'owner replaced' END AS obj,
+       lomacl, array_ndims(lomacl) AS ndims
+  FROM lolor.pg_largeobject_metadata
+ WHERE oid IN (:empty_oid, :empty_dead_oid) ORDER BY 1;
+SELECT lolor.migrate_to_native();
+SELECT lolor.disable();
+SELECT count(*) AS native_acls_without_dimensions
+  FROM pg_catalog.pg_largeobject_metadata
+ WHERE oid IN (:empty_oid, :empty_dead_oid) AND array_ndims(lomacl) IS NULL;
+SET ROLE lolor_carol;
+SELECT lolor_expect_error(format('SELECT lo_get(%s)', :empty_oid)) AS native_owner_denied;
+RESET ROLE;
+GRANT SELECT ON LARGE OBJECT :empty_oid TO lolor_carol;
+SET ROLE lolor_carol;
+SELECT convert_from(lo_get(:empty_oid), 'UTF8') AS native_owner_reads_after_grant;
+RESET ROLE;
+SELECT lo_unlink(:empty_oid);
+SELECT lo_unlink(:empty_dead_oid);
+SELECT lolor.enable();
 DROP ROLE lolor_carol;
 DROP ROLE lolor_dave;
 DROP ROLE lolor_bob;
