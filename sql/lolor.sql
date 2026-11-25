@@ -585,6 +585,25 @@ SELECT lo_unlink(:granted_oid);
 SELECT lo_unlink(:chain_oid);
 SELECT lo_unlink(:merge_oid);
 SELECT lo_unlink(:mixed_oid);
+-- A role given by OID must exist: regrole does not check a bare OID
+SELECT lolor_expect_error(
+  'SELECT lolor.fix_orphans(''4000000000''::regrole)') AS missing_new_owner;
+-- An owner who revoked their own access and granted it to a role that is
+-- later dropped keeps an empty ACL, not NULL, which would mean the owner's
+-- default privileges
+CREATE ROLE lolor_eve;
+SELECT lolor.disable();
+SET ROLE lolor_carol;
+SELECT lo_from_bytea(0, 'owner revoked') AS revoked_oid \gset
+GRANT SELECT ON LARGE OBJECT :revoked_oid TO lolor_eve;
+REVOKE ALL ON LARGE OBJECT :revoked_oid FROM lolor_carol;
+RESET ROLE;
+SELECT lolor.enable();
+SELECT lolor.migrate_from_native();
+DROP ROLE lolor_eve;
+SELECT lolor.fix_orphans('lolor_carol') AS objects_repaired;
+SELECT lomacl FROM lolor.pg_largeobject_metadata WHERE oid = :revoked_oid;
+SELECT lo_unlink(:revoked_oid);
 DROP ROLE lolor_carol;
 DROP ROLE lolor_dave;
 DROP ROLE lolor_bob;

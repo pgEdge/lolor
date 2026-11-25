@@ -58,6 +58,35 @@ CREATE TABLE lolor.pg_largeobject_description(
 SELECT pg_catalog.pg_extension_config_dump('lolor.pg_largeobject_description', '');
 
 /*
+ * Refuse unless the loaded library matches this extension version, the
+ * caller is a client session, and no other client session is connected to
+ * this database.
+ *
+ * Renaming the pg_catalog large object functions cannot be made atomic for
+ * other backends: a rename keeps the function OID, so a session that has
+ * already resolved lo_open() keeps calling the previous implementation, and
+ * neither cached plans nor libpq's fastpath OIDs are invalidated.  Require
+ * sole access instead, as ALTER DATABASE ... RENAME does.  The check is in
+ * C, so it is the loaded library that decides, and it takes
+ * AccessExclusiveLock on the database before counting: a session that is
+ * connecting either shows up in the count or waits until the caller's
+ * transaction ends.
+ */
+CREATE FUNCTION lolor._require_no_other_sessions(what text)
+RETURNS void
+AS 'MODULE_PATHNAME', 'lolor_require_no_other_sessions'
+LANGUAGE C STRICT VOLATILE;
+
+REVOKE ALL ON FUNCTION lolor._require_no_other_sessions(text) FROM PUBLIC;
+
+/*
+ * The hook in the library makes the same check when the statement names
+ * lolor, but not when lolor is installed by CREATE EXTENSION ... CASCADE for
+ * an extension that requires it.  Check here too, before the first rename.
+ */
+SELECT lolor._require_no_other_sessions('create the lolor extension');
+
+/*
  * Replace the large object functions in pg_catalog.
  *
  * Each native function is renamed to *_orig and a lolor function takes its
@@ -313,6 +342,14 @@ BEGIN
 
   PERFORM lolor._require_version_match('repair orphaned large objects');
 
+  -- regrole accepts a bare OID without checking it, and a role that does not
+  -- exist would turn its grants into entries that the rebuild below drops.
+  IF new_owner IS NULL
+     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = new_owner) THEN
+    RAISE EXCEPTION 'role % does not exist', coalesce(new_owner::oid::text, 'NULL')
+      USING HINT = 'Pass an existing role to take over the orphaned objects.';
+  END IF;
+
   WITH o AS (
     SELECT m.oid, m.lomowner AS old_owner, m.lomacl,
            NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = m.lomowner) AS owner_dead
@@ -325,9 +362,10 @@ BEGIN
          -- aclitem input syntax: an ACL must not hold two entries for the
          -- same pair, since GRANT and REVOKE update only the first, and
          -- makeaclitem() cannot mix grant options within one entry.  Large
-         -- objects carry only SELECT (r) and UPDATE (w).  An empty result is
-         -- NULL, meaning default privileges.
-         lomacl = (
+         -- objects carry only SELECT (r) and UPDATE (w).  An explicit ACL
+         -- with no entries left stays empty rather than turning into NULL,
+         -- which would hand the owner the default privileges back.
+         lomacl = CASE WHEN o.lomacl IS NULL THEN NULL ELSE coalesce((
            SELECT array_agg(s.item ORDER BY s.grantee, s.grantor)
            FROM (SELECT p.grantee, p.grantor,
                         format('%s=%s/%s',
@@ -347,7 +385,8 @@ BEGIN
                  LEFT JOIN pg_catalog.pg_roles ge ON ge.oid = p.grantee
                  JOIN pg_catalog.pg_roles gr ON gr.oid = p.grantor
                  WHERE p.grantee = 0 OR ge.oid IS NOT NULL
-                 GROUP BY p.grantee, p.grantor, ge.rolname, gr.rolname) s)
+                 GROUP BY p.grantee, p.grantor, ge.rolname, gr.rolname) s),
+           '{}'::pg_catalog.aclitem[]) END
     FROM o
    WHERE m.oid = o.oid
      AND (o.owner_dead
@@ -366,28 +405,6 @@ REVOKE ALL ON FUNCTION lolor.fix_orphans(regrole) FROM PUBLIC;
 /*
  * enable / disable / is_enabled.
  */
-
-/*
- * Refuse unless the loaded library matches this extension version, the
- * caller is a client session, and no other client session is connected to
- * this database.
- *
- * Renaming the pg_catalog large object functions cannot be made atomic for
- * other backends: a rename keeps the function OID, so a session that has
- * already resolved lo_open() keeps calling the previous implementation, and
- * neither cached plans nor libpq's fastpath OIDs are invalidated.  Require
- * sole access instead, as ALTER DATABASE ... RENAME does.  The check is in
- * C, so it is the loaded library that decides, and it takes
- * AccessExclusiveLock on the database before counting: a session that is
- * connecting either shows up in the count or waits until the caller's
- * transaction ends.
- */
-CREATE FUNCTION lolor._require_no_other_sessions(what text)
-RETURNS void
-AS 'MODULE_PATHNAME', 'lolor_require_no_other_sessions'
-LANGUAGE C STRICT VOLATILE;
-
-REVOKE ALL ON FUNCTION lolor._require_no_other_sessions(text) FROM PUBLIC;
 
 CREATE FUNCTION lolor.is_enabled()
 RETURNS boolean AS $$

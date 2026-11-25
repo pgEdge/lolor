@@ -1368,6 +1368,63 @@ SELECT lo_unlink(:mixed_oid);
          1
 (1 row)
 
+-- A role given by OID must exist: regrole does not check a bare OID
+SELECT lolor_expect_error(
+  'SELECT lolor.fix_orphans(''4000000000''::regrole)') AS missing_new_owner;
+    missing_new_owner    
+-------------------------
+ role NNN does not exist
+(1 row)
+
+-- An owner who revoked their own access and granted it to a role that is
+-- later dropped keeps an empty ACL, not NULL, which would mean the owner's
+-- default privileges
+CREATE ROLE lolor_eve;
+SELECT lolor.disable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ disable 
+---------
+ t
+(1 row)
+
+SET ROLE lolor_carol;
+SELECT lo_from_bytea(0, 'owner revoked') AS revoked_oid \gset
+GRANT SELECT ON LARGE OBJECT :revoked_oid TO lolor_eve;
+REVOKE ALL ON LARGE OBJECT :revoked_oid FROM lolor_carol;
+RESET ROLE;
+SELECT lolor.enable();
+NOTICE:  lolor: reconnect existing client sessions; they cache large object function OIDs
+ enable 
+--------
+ t
+(1 row)
+
+SELECT lolor.migrate_from_native();
+NOTICE:  migrated 1 large object(s), 1 data page(s), to lolor storage
+ migrate_from_native 
+---------------------
+                   1
+(1 row)
+
+DROP ROLE lolor_eve;
+SELECT lolor.fix_orphans('lolor_carol') AS objects_repaired;
+ objects_repaired 
+------------------
+                1
+(1 row)
+
+SELECT lomacl FROM lolor.pg_largeobject_metadata WHERE oid = :revoked_oid;
+ lomacl 
+--------
+ {}
+(1 row)
+
+SELECT lo_unlink(:revoked_oid);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
 DROP ROLE lolor_carol;
 DROP ROLE lolor_dave;
 DROP ROLE lolor_bob;
