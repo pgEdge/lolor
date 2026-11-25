@@ -20,7 +20,7 @@ lolor must be loaded at server start. Add it to `shared_preload_libraries` in `p
 shared_preload_libraries = 'lolor'
 ```
 
-Then connect to your Postgres database and create the extension with the command:
+Then connect to your Postgres database as a superuser and create the extension. `CREATE EXTENSION lolor` renames the native large object functions, so lolor refuses the command while any other client session is connected to the database. Use the following command:
 
 ```
 CREATE EXTENSION lolor;
