@@ -1,4 +1,4 @@
-/* lolor--1.2.3--1.3.0.sql */
+/* lolor--1.2.3--2.0.0.sql */
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "ALTER EXTENSION lolor UPDATE" to load this file. \quit
@@ -8,7 +8,7 @@
  *
  * Through 1.2.3 the setting accepted 16, although a generated OID has four
  * bits for the node id.  A node configured that way worked, with node bits
- * that read back as 0.  From 1.3.0 the bound is 15: the server rejects the
+ * that read back as 0.  From 2.0.0 the bound is 15: the server rejects the
  * configured 16 at startup with a line in the log, lolor.node falls back to
  * 0, which means unset, and every call that creates a large object fails.
  * Nothing else points the operator at the cause, so stop the update here and
@@ -85,9 +85,10 @@ BEGIN
   IF pg_catalog.cardinality(sources) > 0 THEN
     RAISE EXCEPTION 'lolor.node is configured with a value the server rejects: %',
                     pg_catalog.array_to_string(sources, '; ')
-      USING DETAIL = 'lolor 1.3.0 accepts node ids 1 through 15. The server '
-                     'ignores any other value, lolor.node falls back to 0 '
-                     '(unset), and large objects cannot be created on this node.',
+      USING DETAIL = 'lolor 2.0.0 accepts node ids 1 through 15. The server '
+                     'ignores any other value and uses the next setting that '
+                     'applies, or 0 (unset) if there is none, in which case '
+                     'large objects cannot be created on this node.',
             HINT = 'Set lolor.node to a value from 1 to 15 that no other node '
                    'uses, then run this command again. A change in a '
                    'configuration file needs a reload first. A database or '
@@ -115,7 +116,7 @@ $$;
  * replaces them by renaming the originals to *_orig and creating its own.  An
  * ACL belongs to a function rather than to a name, so the restriction stayed
  * on the parked original while each replacement was created with the default
- * of EXECUTE TO PUBLIC.  Every version through 1.2.2 is affected.
+ * of EXECUTE TO PUBLIC.  Every version through 1.2.3 is affected.
  *
  * Revoke on both spellings, since the installation may be enabled or
  * disabled.  Revoking on an already restricted function is a no-op.
@@ -258,7 +259,7 @@ REVOKE ALL ON FUNCTION lolor.fix_orphans(regrole) FROM PUBLIC;
 /*
  * Remove the bogus pg_shdepend rows left by earlier versions.
  *
- * Through 1.2.2, creating a large object recorded a pg_shdepend row whose
+ * Through 1.2.3, creating a large object recorded a pg_shdepend row whose
  * classId was the OID of lolor.pg_largeobject -- an ordinary table, not a
  * catalog the dependency machinery can describe.  DROP ROLE on any role that
  * had created one failed with "unrecognized object class", and the rows were

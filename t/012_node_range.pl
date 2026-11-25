@@ -1,6 +1,6 @@
-# lolor.node = 16 was accepted through 1.2.3 and is out of range from 1.3.0.
+# lolor.node = 16 was accepted through 1.2.3 and is out of range from 2.0.0.
 # The server then ignores the configured value and the node id reads as
-# unset, so the update to 1.3.0 refuses and says what to change.
+# unset, so the update to 2.0.0 refuses and says what to change.
 #
 # Copyright (c) 2022-2026, pgEdge, Inc.
 #
@@ -146,7 +146,7 @@ $node->safe_psql('postgres', "ALTER EXTENSION lolor UPDATE");
 is( $node->safe_psql(
 		'postgres',
 		"SELECT extversion FROM pg_extension WHERE extname = 'lolor'"),
-	'1.3.0',
+	'2.0.0',
 	"the update succeeds once lolor.node is in range");
 is($node->safe_psql('postgres', "SELECT lo_creat(-1)::bigint & 15"),
 	'15', "new large objects carry the node id in effect");
