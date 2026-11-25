@@ -804,19 +804,39 @@ $$ LANGUAGE sql STABLE;
  * migrating: because the movement is hidden from replication, divergence is
  * otherwise silent until a later conflict.
  *
+ * The output covers all three tables: owner, ACL and comment as they are,
+ * and the pages as one hash.  Each page number goes into that hash with its
+ * data, so the same bytes at a different offset do not compare equal.
+ *
+ * The pages are hashed in groups of 100000, and then the group hashes, so
+ * that no string built here comes near the 1 GB limit on a value, whatever
+ * the size of the object.
+ *
  * This reads every page and is deliberately not cheap; run it as a check, not
  * on a schedule.
  */
 CREATE FUNCTION lolor.digest()
-RETURNS TABLE (loid oid, lomowner name, npages bigint, nbytes bigint, digest text)
+RETURNS TABLE (loid oid, lomowner name, lomacl aclitem[], description text,
+               npages bigint, nbytes bigint, digest text)
 AS $$
   SELECT m.oid,
          pg_catalog.pg_get_userbyid(m.lomowner),
-         count(d.pageno),
-         coalesce(sum(length(d.data)), 0),
-         md5(coalesce(string_agg(md5(d.data), ',' ORDER BY d.pageno), ''))
+         m.lomacl,
+         c.description,
+         coalesce(sum(g.npages), 0)::bigint,
+         coalesce(sum(g.nbytes), 0)::bigint,
+         md5(coalesce(string_agg(g.grp || ':' || g.hash, ','
+                                 ORDER BY g.grp), ''))
   FROM lolor.pg_largeobject_metadata m
-  LEFT JOIN lolor.pg_largeobject d ON d.loid = m.oid
-  GROUP BY m.oid, m.lomowner
+  LEFT JOIN lolor.pg_largeobject_description c ON c.loid = m.oid
+  LEFT JOIN (SELECT d.loid,
+                    d.pageno / 100000 AS grp,
+                    count(*) AS npages,
+                    sum(length(d.data)) AS nbytes,
+                    md5(string_agg(d.pageno || ':' || md5(d.data), ','
+                                   ORDER BY d.pageno)) AS hash
+               FROM lolor.pg_largeobject d
+              GROUP BY d.loid, d.pageno / 100000) g ON g.loid = m.oid
+  GROUP BY m.oid, m.lomowner, m.lomacl, c.description
   ORDER BY m.oid
 $$ LANGUAGE sql STABLE;

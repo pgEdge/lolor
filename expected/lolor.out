@@ -2306,8 +2306,8 @@ SELECT lo_from_bytea(0, 'digest two, longer') AS d2 \gset
 SELECT npages, nbytes, digest FROM lolor.digest() ORDER BY nbytes, digest;
  npages | nbytes |              digest              
 --------+--------+----------------------------------
-      1 |     10 | be0bbea1ab8a74be81d08e575166e9e4
-      1 |     18 | ce7a8cf8a81e8ec180a8a8a224f473c6
+      1 |     10 | 6e4cca1ff4c58e6c652822a58f9a7499
+      1 |     18 | 3896523477547084e878e44b49c9351f
 (2 rows)
 
 SELECT lo_unlink(:d1);
@@ -2317,6 +2317,73 @@ SELECT lo_unlink(:d1);
 (1 row)
 
 SELECT lo_unlink(:d2);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+-- The same bytes on a different page give a different digest, and the ACL
+-- and comment are reported with it.
+SELECT lo_from_bytea(0, 'x') AS d1 \gset
+SELECT lo_create(0) AS d2 \gset
+-- A large object page is a quarter of a block: 2048 bytes on a default build.
+SELECT lo_put(:d2, current_setting('block_size')::int / 4, 'x');
+ lo_put 
+--------
+ 
+(1 row)
+
+-- GRANT and COMMENT do not reach lolor storage; set the rows directly, as a
+-- migration from native storage would.
+UPDATE lolor.pg_largeobject_metadata
+   SET lomacl = acldefault('L', lomowner) WHERE oid = :d2;
+INSERT INTO lolor.pg_largeobject_description VALUES (:d2, 'sparse');
+SELECT loid = :d2 AS is_d2,
+       lomacl IS NOT DISTINCT FROM
+         CASE WHEN loid = :d2
+              THEN acldefault('L', lomowner::text::regrole) END AS acl_as_set,
+       description, npages, nbytes
+  FROM lolor.digest() ORDER BY 1;
+ is_d2 | acl_as_set | description | npages | nbytes 
+-------+------------+-------------+--------+--------
+ f     | t          |             |      1 |      1
+ t     | t          | sparse      |      1 |      1
+(2 rows)
+
+SELECT count(DISTINCT digest) AS distinct_digests FROM lolor.digest();
+ distinct_digests 
+------------------
+                2
+(1 row)
+
+SELECT lo_unlink(:d1);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+SELECT lo_unlink(:d2);
+ lo_unlink 
+-----------
+         1
+(1 row)
+
+-- Pages are hashed in groups of 100000; the counts add up across groups.
+SELECT lo_from_bytea(0, 'first') AS d1 \gset
+SELECT lo_put(:d1, 100000::bigint * (current_setting('block_size')::int / 4),
+              'last');
+ lo_put 
+--------
+ 
+(1 row)
+
+SELECT npages, nbytes FROM lolor.digest();
+ npages | nbytes 
+--------+--------
+      2 |      9
+(1 row)
+
+SELECT lo_unlink(:d1);
  lo_unlink 
 -----------
          1

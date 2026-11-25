@@ -964,6 +964,34 @@ SELECT npages, nbytes, digest FROM lolor.digest() ORDER BY nbytes, digest;
 SELECT lo_unlink(:d1);
 SELECT lo_unlink(:d2);
 
+-- The same bytes on a different page give a different digest, and the ACL
+-- and comment are reported with it.
+SELECT lo_from_bytea(0, 'x') AS d1 \gset
+SELECT lo_create(0) AS d2 \gset
+-- A large object page is a quarter of a block: 2048 bytes on a default build.
+SELECT lo_put(:d2, current_setting('block_size')::int / 4, 'x');
+-- GRANT and COMMENT do not reach lolor storage; set the rows directly, as a
+-- migration from native storage would.
+UPDATE lolor.pg_largeobject_metadata
+   SET lomacl = acldefault('L', lomowner) WHERE oid = :d2;
+INSERT INTO lolor.pg_largeobject_description VALUES (:d2, 'sparse');
+SELECT loid = :d2 AS is_d2,
+       lomacl IS NOT DISTINCT FROM
+         CASE WHEN loid = :d2
+              THEN acldefault('L', lomowner::text::regrole) END AS acl_as_set,
+       description, npages, nbytes
+  FROM lolor.digest() ORDER BY 1;
+SELECT count(DISTINCT digest) AS distinct_digests FROM lolor.digest();
+SELECT lo_unlink(:d1);
+SELECT lo_unlink(:d2);
+
+-- Pages are hashed in groups of 100000; the counts add up across groups.
+SELECT lo_from_bytea(0, 'first') AS d1 \gset
+SELECT lo_put(:d1, 100000::bigint * (current_setting('block_size')::int / 4),
+              'last');
+SELECT npages, nbytes FROM lolor.digest();
+SELECT lo_unlink(:d1);
+
 -- migrate_storage() is the mechanism behind both migration functions.  Grant
 -- schema access so that the function's own privileges are what is exercised
 -- rather than USAGE on the schema.
