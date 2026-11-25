@@ -36,7 +36,7 @@ on:
         inputs:
             simulate_tag:
                 description: |
-                    Pretend a v* tag was pushed (e.g. "v1.3.0-test1") so we can
+                    Pretend a v* tag was pushed (e.g. "v2.0.0-test1") so we can
                     exercise determine-repo-type / package-rpm / package-deb
                     without pushing to live repos. Leave empty for a normal
                     branch test (everything downstream is skipped).
