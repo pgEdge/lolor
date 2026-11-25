@@ -219,8 +219,10 @@ migration interacts with replication:
 - Native OIDs are not node-encoded. Pass the OIDs of the other nodes (from
   the new function `lolor.native_lo_oids()`) as `peer_oids` to turn a
   cross-node collision into a refusal.
-- The new function `lolor.digest()` returns a per-object checksum of lolor
-  storage. Compare the output across nodes after a migration.
+- The new function `lolor.digest()` reports each object in lolor storage
+  with its owner, ACL, comment, page and byte counts, and a hash of its pages
+  that includes each page number. Compare the output across nodes after a
+  migration.
 
 ### Dropping the Extension
 

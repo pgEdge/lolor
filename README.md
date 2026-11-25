@@ -236,7 +236,10 @@ How to proceed depends on where the native objects are:
 In every case, stop large object activity until the nodes agree. Check the
 result of each migration call: it returns the number of objects it moved, and
 -1 when it refused to run because of a logical replication slot, in which case
-nothing moved. Finish by comparing `lolor.digest()` across the nodes.
+nothing moved. Finish by comparing `lolor.digest()` across the nodes. It
+reports each object's owner, ACL and comment, and a hash of its pages that
+includes each page number, so matching output means the lolor tables hold the
+same objects.
 
 ### Dropping the extension
 
